@@ -156,14 +156,17 @@ private struct PokemonListView: View {
         .navigationTitle("Pocket Dex")
         .searchable(text: $searchText, prompt: "Name or number")
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItem(placement: .principal) {
                 Picker("View", selection: $viewMode) {
                     ForEach(PokemonListViewMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.systemImage).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
+                .frame(minWidth: 160)
+            }
 
+            ToolbarItemGroup(placement: .primaryAction) {
                 if viewMode == .gallery {
                     Button {
                         showingShiny.toggle()
@@ -214,10 +217,12 @@ private struct PokemonListView: View {
     }
 
     @ViewBuilder private var galleryContent: some View {
-        ScrollView {
+        List(selection: $selectedPokemonID) {
             if pokemon.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, minHeight: 320)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16)], spacing: 16) {
                     ForEach(pokemon) { pokemon in
@@ -225,14 +230,23 @@ private struct PokemonListView: View {
                             pokemon: pokemon,
                             showingShiny: showingShiny,
                             isSelected: pokemon.id == selectedPokemonID
-                        ) {
-                            selectedPokemonID = pokemon.id
+                        )
+                        // A transparent NavigationLink over the cell drives the same detail
+                        // navigation as the list rows (so tapping pushes the detail on iPhone),
+                        // while its disclosure chevron stays hidden.
+                        .overlay {
+                            NavigationLink(value: pokemon.id) { Color.clear }
+                                .opacity(0)
                         }
                     }
                 }
-                .padding()
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
         }
+        .listStyle(.plain)
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -258,36 +272,32 @@ private struct PokemonGalleryCell: View {
     let pokemon: PokemonSummary
     let showingShiny: Bool
     let isSelected: Bool
-    let select: () -> Void
 
     var body: some View {
-        Button(action: select) {
-            VStack(spacing: 8) {
-                PokemonArtworkView(
-                    url: showingShiny ? pokemon.shinyArtworkURL : pokemon.artworkURL,
-                    title: pokemon.displayName
-                )
-                .frame(height: 120)
+        VStack(spacing: 8) {
+            PokemonArtworkView(
+                url: showingShiny ? pokemon.shinyArtworkURL : pokemon.artworkURL,
+                title: pokemon.displayName
+            )
+            .frame(height: 120)
 
-                Text(pokemon.displayName)
-                    .font(.callout)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+            Text(pokemon.displayName)
+                .font(.callout)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
-                Text(pokemon.formattedPokedexNumber)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity)
-            .background(.quaternary.opacity(isSelected ? 0.9 : 0.35), in: RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(.tint, lineWidth: isSelected ? 3 : 0)
-            }
+            Text(pokemon.formattedPokedexNumber)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(8)
+        .frame(maxWidth: .infinity)
+        .background(.quaternary.opacity(isSelected ? 0.9 : 0.35), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(.tint, lineWidth: isSelected ? 3 : 0)
+        }
     }
 }
 
