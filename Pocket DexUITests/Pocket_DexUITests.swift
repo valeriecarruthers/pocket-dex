@@ -34,6 +34,21 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testPokemonDetailLoads() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Wait for the Pokemon list to finish loading from PokeAPI.
+        let firstCell = app.cells.firstMatch
+        XCTAssertTrue(firstCell.waitForExistence(timeout: 30), "Pokemon list never populated")
+        firstCell.tap()
+
+        // The Profile section only renders once the species detail decodes successfully.
+        let profileHeader = app.staticTexts["Profile"]
+        XCTAssertTrue(profileHeader.waitForExistence(timeout: 30), "Pokemon detail never loaded")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

@@ -902,6 +902,10 @@ private struct PokeAPIResourceList: Decodable {
     let results: [PokeAPIResource]
 }
 
+private struct PokeAPIURLReference: Decodable {
+    let url: URL
+}
+
 private struct PokeAPIResource: Decodable, Hashable {
     let name: String
     let url: URL
@@ -1000,7 +1004,7 @@ private struct PokeAPISpeciesResponse: Decodable {
     let flavorTextEntries: [PokeAPIFlavorTextEntry]
     let genera: [PokeAPIGenus]
     let habitat: PokeAPIResource?
-    let evolutionChain: PokeAPIResource
+    let evolutionChain: PokeAPIURLReference
 
     var englishFlavorText: String? {
         flavorTextEntries
