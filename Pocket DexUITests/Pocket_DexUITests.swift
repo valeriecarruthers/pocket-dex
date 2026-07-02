@@ -38,10 +38,12 @@ final class Pocket_DexUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // Wait for the Pokemon list to finish loading from PokeAPI.
-        let firstCell = app.cells.firstMatch
-        XCTAssertTrue(firstCell.waitForExistence(timeout: 30), "Pokemon list never populated")
-        firstCell.tap()
+        // Open a Pokemon from the list. On compact width the app launches on the list;
+        // on regular width the row is in the always-visible sidebar. Rows expose a combined
+        // label (e.g. "#0001, Bulbasaur, Kanto"), so match on the name.
+        let bulbasaur = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch
+        XCTAssertTrue(bulbasaur.waitForExistence(timeout: 30), "Pokemon list never populated")
+        bulbasaur.tap()
 
         // The Profile section only renders once the species detail decodes successfully.
         let profileHeader = app.staticTexts["Profile"]

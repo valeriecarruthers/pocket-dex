@@ -14,8 +14,24 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
+    @State private var viewMode: PokemonListViewMode = .list
+    @State private var showingShinyGallery = false
     @State private var isLoading = false
     @State private var loadingError: String?
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
+    // On iPad/Mac the detail column is always visible, so pre-selecting the first Pokemon fills it.
+    // On iPhone (compact) that would push straight into a detail view, so we stay on the list instead.
+    private var autoSelectsFirstPokemon: Bool {
+        #if os(iOS)
+        horizontalSizeClass != .compact
+        #else
+        true
+        #endif
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -25,6 +41,8 @@ struct ContentView: View {
                 searchText: $searchText,
                 sortOption: $sortOption,
                 selectedRegion: $selectedRegion,
+                viewMode: $viewMode,
+                showingShiny: $showingShinyGallery,
                 isLoading: isLoading,
                 loadingError: loadingError,
                 retry: loadPokemon
@@ -38,7 +56,8 @@ struct ContentView: View {
                     pokemon: selectedPokemon,
                     previousPokemon: adjacentPokemon.previous,
                     nextPokemon: adjacentPokemon.next,
-                    selectPokemon: { selectedPokemonID = $0.id }
+                    selectPokemon: { selectedPokemonID = $0.id },
+                    selectPokemonID: { selectedPokemonID = $0 }
                 )
             } else {
                 ContentUnavailableView(
@@ -102,7 +121,7 @@ struct ContentView: View {
 
         do {
             pokemon = try await PokeAPIClient.shared.fetchAllPokemon()
-            if selectedPokemonID == nil {
+            if selectedPokemonID == nil, autoSelectsFirstPokemon {
                 selectedPokemonID = filteredPokemon.first?.id
             }
         } catch {
@@ -119,40 +138,41 @@ private struct PokemonListView: View {
     @Binding var searchText: String
     @Binding var sortOption: PokemonSortOption
     @Binding var selectedRegion: PokemonRegion
+    @Binding var viewMode: PokemonListViewMode
+    @Binding var showingShiny: Bool
     let isLoading: Bool
     let loadingError: String?
     let retry: () async -> Void
 
     var body: some View {
-        List(selection: $selectedPokemonID) {
-            if isLoading && pokemon.isEmpty {
-                ProgressView("Loading Pokemon...")
-            } else if let loadingError, pokemon.isEmpty {
-                ContentUnavailableView {
-                    Label("Unable to Load Pokemon", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(loadingError)
-                } actions: {
-                    Button("Try Again") {
-                        Task { await retry() }
-                    }
-                }
-            } else if pokemon.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            } else {
-                Section("\(pokemon.count) Pokemon") {
-                    ForEach(pokemon) { pokemon in
-                        NavigationLink(value: pokemon.id) {
-                            PokemonRow(pokemon: pokemon)
-                        }
-                    }
-                }
+        Group {
+            switch viewMode {
+            case .list:
+                listContent
+            case .gallery:
+                galleryContent
             }
         }
         .navigationTitle("Pocket Dex")
         .searchable(text: $searchText, prompt: "Name or number")
         .toolbar {
             ToolbarItemGroup {
+                Picker("View", selection: $viewMode) {
+                    ForEach(PokemonListViewMode.allCases) { mode in
+                        Label(mode.title, systemImage: mode.systemImage).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if viewMode == .gallery {
+                    Button {
+                        showingShiny.toggle()
+                    } label: {
+                        Label("Shiny", systemImage: showingShiny ? "sparkles.rectangle.stack.fill" : "sparkles")
+                    }
+                    .tint(showingShiny ? .yellow : nil)
+                }
+
                 Picker("Region", selection: $selectedRegion) {
                     ForEach(PokemonRegion.allCases) { region in
                         Text(region.name).tag(region)
@@ -175,6 +195,99 @@ private struct PokemonListView: View {
         .refreshable {
             await retry()
         }
+    }
+
+    @ViewBuilder private var listContent: some View {
+        List(selection: $selectedPokemonID) {
+            if pokemon.isEmpty {
+                emptyState
+            } else {
+                Section("\(pokemon.count) Pokemon") {
+                    ForEach(pokemon) { pokemon in
+                        NavigationLink(value: pokemon.id) {
+                            PokemonRow(pokemon: pokemon)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var galleryContent: some View {
+        ScrollView {
+            if pokemon.isEmpty {
+                emptyState
+                    .frame(maxWidth: .infinity, minHeight: 320)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16)], spacing: 16) {
+                    ForEach(pokemon) { pokemon in
+                        PokemonGalleryCell(
+                            pokemon: pokemon,
+                            showingShiny: showingShiny,
+                            isSelected: pokemon.id == selectedPokemonID
+                        ) {
+                            selectedPokemonID = pokemon.id
+                        }
+                    }
+                }
+                .padding()
+            }
+        }
+    }
+
+    @ViewBuilder private var emptyState: some View {
+        if isLoading {
+            ProgressView("Loading Pokemon...")
+        } else if let loadingError {
+            ContentUnavailableView {
+                Label("Unable to Load Pokemon", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text(loadingError)
+            } actions: {
+                Button("Try Again") {
+                    Task { await retry() }
+                }
+            }
+        } else {
+            ContentUnavailableView.search(text: searchText)
+        }
+    }
+}
+
+private struct PokemonGalleryCell: View {
+    let pokemon: PokemonSummary
+    let showingShiny: Bool
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            VStack(spacing: 8) {
+                PokemonArtworkView(
+                    url: showingShiny ? pokemon.shinyArtworkURL : pokemon.artworkURL,
+                    title: pokemon.displayName
+                )
+                .frame(height: 120)
+
+                Text(pokemon.displayName)
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                Text(pokemon.formattedPokedexNumber)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(.quaternary.opacity(isSelected ? 0.9 : 0.35), in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.tint, lineWidth: isSelected ? 3 : 0)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -205,6 +318,7 @@ private struct PokemonDetailView: View {
     let previousPokemon: PokemonSummary?
     let nextPokemon: PokemonSummary?
     let selectPokemon: (PokemonSummary) -> Void
+    let selectPokemonID: (Int) -> Void
 
     @State private var detail: PokemonDetail?
     @State private var isLoading = false
@@ -231,7 +345,7 @@ private struct PokemonDetailView: View {
                     PokemonHeroView(detail: detail, showingShiny: $showingShiny)
                     PokemonProfileView(detail: detail)
                     PokemonGamesView(games: detail.games)
-                    EvolutionTreeView(nodes: detail.evolutionTree)
+                    EvolutionTreeView(nodes: detail.evolutionTree, selectPokemonID: selectPokemonID)
                     PokemonAdjacentControls(
                         previousPokemon: previousPokemon,
                         nextPokemon: nextPokemon,
@@ -289,15 +403,36 @@ private struct PokemonHeroView: View {
     let detail: PokemonDetail
     @Binding var showingShiny: Bool
 
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
     private var activeImageURL: URL? {
         showingShiny ? detail.shinyImageURL : detail.regularImageURL
+    }
+
+    // The iPhone (compact width) keeps the smaller artwork; iPad and Mac get a more prominent image.
+    private var isCompact: Bool {
+        #if os(iOS)
+        horizontalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    private var artworkSize: CGFloat {
+        isCompact ? 180 : 300
+    }
+
+    private var primaryTypeColor: Color? {
+        detail.types.first.map(Color.pokemonType)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 20) {
-                PokemonArtworkView(url: activeImageURL, title: detail.summary.displayName)
-                    .frame(width: 180, height: 180)
+                PokemonArtworkView(url: activeImageURL, title: detail.summary.displayName, tint: primaryTypeColor)
+                    .frame(width: artworkSize, height: artworkSize)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text(detail.summary.formattedPokedexNumber)
@@ -341,11 +476,15 @@ private struct PokemonHeroView: View {
 private struct PokemonArtworkView: View {
     let url: URL?
     let title: String
+    var tint: Color? = nil
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(.quaternary.opacity(0.55))
+
+            RoundedRectangle(cornerRadius: 8)
+                .fill(tint?.opacity(0.18) ?? Color.clear)
 
             if let url {
                 AsyncImage(url: url) { phase in
@@ -384,9 +523,10 @@ private struct TypeChips: View {
                 Text(type.displayName)
                     .font(.caption)
                     .fontWeight(.semibold)
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(.tint.opacity(0.16), in: Capsule())
+                    .background(Color.pokemonType(type), in: Capsule())
             }
         }
     }
@@ -446,6 +586,7 @@ private struct PokemonGamesView: View {
 
 private struct EvolutionTreeView: View {
     let nodes: [EvolutionNode]
+    let selectPokemonID: (Int) -> Void
 
     var body: some View {
         DetailSection(title: "Evolution") {
@@ -455,7 +596,7 @@ private struct EvolutionTreeView: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(nodes) { node in
-                        EvolutionNodeView(node: node, level: 0)
+                        EvolutionNodeView(node: node, level: 0, selectPokemonID: selectPokemonID)
                     }
                 }
             }
@@ -466,30 +607,44 @@ private struct EvolutionTreeView: View {
 private struct EvolutionNodeView: View {
     let node: EvolutionNode
     let level: Int
+    let selectPokemonID: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                PokemonArtworkView(url: node.spriteURL, title: node.displayName)
-                    .frame(width: 54, height: 54)
+            Button {
+                selectPokemonID(node.id)
+            } label: {
+                HStack(spacing: 12) {
+                    PokemonArtworkView(url: node.spriteURL, title: node.displayName)
+                        .frame(width: 54, height: 54)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(node.displayName)
-                        .font(.headline)
-                    Text(node.formattedPokedexNumber)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    if let requirement = node.requirement {
-                        Text(requirement)
-                            .font(.caption)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(node.displayName)
+                            .font(.headline)
+                        Text(node.formattedPokedexNumber)
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
+                        if let requirement = node.requirement {
+                            Text(requirement)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(node.id <= 0)
             .padding(.leading, CGFloat(level) * 20)
 
             ForEach(node.children) { child in
-                EvolutionNodeView(node: child, level: level + 1)
+                EvolutionNodeView(node: child, level: level + 1, selectPokemonID: selectPokemonID)
             }
         }
     }
@@ -597,6 +752,16 @@ private struct PokemonSummary: Identifiable, Hashable {
     var region: PokemonRegion {
         PokemonRegion.region(for: pokedexNumber)
     }
+
+    private static let artworkBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork"
+
+    var artworkURL: URL? {
+        URL(string: "\(Self.artworkBase)/\(id).png")
+    }
+
+    var shinyArtworkURL: URL? {
+        URL(string: "\(Self.artworkBase)/shiny/\(id).png")
+    }
 }
 
 private struct PokemonDetail {
@@ -641,6 +806,27 @@ private struct EvolutionNode: Identifiable, Hashable {
 
     var spriteURL: URL? {
         URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/\(id).png")
+    }
+}
+
+private enum PokemonListViewMode: String, CaseIterable, Identifiable {
+    case list
+    case gallery
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .list: "List"
+        case .gallery: "Gallery"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .list: "list.bullet"
+        case .gallery: "square.grid.2x2"
+        }
     }
 }
 
@@ -1098,6 +1284,42 @@ private enum PokeAPIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse: "PokeAPI returned an invalid response."
+        }
+    }
+}
+
+private extension Color {
+    init(pokemonHex hex: UInt) {
+        self.init(
+            .sRGB,
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
+    }
+
+    /// Canonical color for each Pokemon type, matching a standard type chart.
+    static func pokemonType(_ type: String) -> Color {
+        switch type.lowercased() {
+        case "normal": Color(pokemonHex: 0xA8A77A)
+        case "fire": Color(pokemonHex: 0xEE8130)
+        case "water": Color(pokemonHex: 0x6390F0)
+        case "electric": Color(pokemonHex: 0xF7D02C)
+        case "grass": Color(pokemonHex: 0x7AC74C)
+        case "ice": Color(pokemonHex: 0x96D9D6)
+        case "fighting": Color(pokemonHex: 0xC22E28)
+        case "poison": Color(pokemonHex: 0xA33EA1)
+        case "ground": Color(pokemonHex: 0xE2BF65)
+        case "flying": Color(pokemonHex: 0xA98FF3)
+        case "psychic": Color(pokemonHex: 0xF95587)
+        case "bug": Color(pokemonHex: 0xA6B91A)
+        case "rock": Color(pokemonHex: 0xB6A136)
+        case "ghost": Color(pokemonHex: 0x735797)
+        case "dragon": Color(pokemonHex: 0x6F35FC)
+        case "dark": Color(pokemonHex: 0x705746)
+        case "steel": Color(pokemonHex: 0xB7B7CE)
+        case "fairy": Color(pokemonHex: 0xD685AD)
+        default: Color.gray
         }
     }
 }
