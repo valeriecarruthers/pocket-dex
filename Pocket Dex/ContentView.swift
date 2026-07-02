@@ -101,7 +101,7 @@ struct ContentView: View {
         loadingError = nil
 
         do {
-            pokemon = try await PokeAPIClient().fetchAllPokemon()
+            pokemon = try await PokeAPIClient.shared.fetchAllPokemon()
             if selectedPokemonID == nil {
                 selectedPokemonID = filteredPokemon.first?.id
             }
@@ -275,7 +275,7 @@ private struct PokemonDetailView: View {
         showingShiny = false
 
         do {
-            detail = try await PokeAPIClient().fetchPokemonDetail(for: pokemon)
+            detail = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
         } catch {
             loadingError = error.localizedDescription
             detail = nil
@@ -714,9 +714,26 @@ private enum PokemonRegion: String, CaseIterable, Identifiable {
 }
 
 private struct PokeAPIClient {
+    static let shared = PokeAPIClient()
+
     private let baseURL = URL(string: "https://pokeapi.co/api/v2")!
-    private let session: URLSession = .shared
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.urlCache = URLCache(
+            memoryCapacity: 20 * 1024 * 1024,
+            diskCapacity: 100 * 1024 * 1024,
+            diskPath: "PokeAPIURLCache"
+        )
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 45
+        return URLSession(configuration: configuration)
+    }()
     private let decoder = JSONDecoder()
+    private let diskCache = PokeAPIDiskCache.shared
+
+    private init() { }
 
     func fetchAllPokemon() async throws -> [PokemonSummary] {
         let listURL = baseURL.appending(path: "pokemon-species")
@@ -730,11 +747,16 @@ private struct PokeAPIClient {
     }
 
     func fetchPokemonDetail(for summary: PokemonSummary) async throws -> PokemonDetail {
-        async let pokemonResponse: PokeAPIPokemonResponse = fetch(baseURL.appending(path: "pokemon").appending(path: String(summary.id)))
-        async let speciesResponse: PokeAPISpeciesResponse = fetch(summary.url)
+        let pokemon: PokeAPIPokemonResponse = try await fetch(pokemonURL(for: summary.id))
+        let species: PokeAPISpeciesResponse = try await fetch(speciesURL(for: summary.id))
+        let evolutionTree: [EvolutionNode]
 
-        let (pokemon, species) = try await (pokemonResponse, speciesResponse)
-        let evolutionChain: PokeAPIEvolutionChainResponse = try await fetch(species.evolutionChain.url)
+        do {
+            let evolutionChain: PokeAPIEvolutionChainResponse = try await fetch(species.evolutionChain.url)
+            evolutionTree = [buildEvolutionNode(from: evolutionChain.chain)]
+        } catch {
+            evolutionTree = []
+        }
 
         return PokemonDetail(
             summary: summary,
@@ -751,19 +773,80 @@ private struct PokeAPIClient {
             flavorText: species.englishFlavorText,
             genus: species.englishGenus,
             habitat: species.habitat?.name.displayName,
-            evolutionTree: [buildEvolutionNode(from: evolutionChain.chain)]
+            evolutionTree: evolutionTree
         )
     }
 
     private func fetch<T: Decodable>(_ url: URL) async throws -> T {
-        let (data, response) = try await session.data(from: url)
+        if let cachedData = try? await diskCache.data(for: url) {
+            return try decoder.decode(T.self, from: cachedData)
+        }
+
+        var lastError: Error?
+
+        for attempt in 0..<3 {
+            do {
+                let data = try await fetchDataOnce(url)
+                try? await diskCache.save(data, for: url)
+                return try decoder.decode(T.self, from: data)
+            } catch {
+                if Task.isCancelled {
+                    throw error
+                }
+
+                if let cachedData = try? await diskCache.data(for: url) {
+                    return try decoder.decode(T.self, from: cachedData)
+                }
+
+                lastError = error
+
+                guard attempt < 2, shouldRetry(error) else {
+                    throw error
+                }
+
+                try await Task.sleep(for: .milliseconds(350 * (attempt + 1)))
+            }
+        }
+
+        throw lastError ?? PokeAPIError.invalidResponse
+    }
+
+    private func fetchDataOnce(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .returnCacheDataElseLoad
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
               200..<300 ~= httpResponse.statusCode else {
             throw PokeAPIError.invalidResponse
         }
 
-        return try decoder.decode(T.self, from: data)
+        return data
+    }
+
+    private func shouldRetry(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+
+        switch urlError.code {
+        case .cancelled,
+             .badURL,
+             .unsupportedURL,
+             .userAuthenticationRequired,
+             .userCancelledAuthentication:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func pokemonURL(for id: Int) -> URL {
+        baseURL.appending(path: "pokemon").appending(path: String(id))
+    }
+
+    private func speciesURL(for id: Int) -> URL {
+        baseURL.appending(path: "pokemon-species").appending(path: String(id))
     }
 
     private func buildEvolutionNode(from chain: PokeAPIEvolutionLink) -> EvolutionNode {
@@ -773,6 +856,45 @@ private struct PokeAPIClient {
             requirement: chain.evolutionDetails.first?.summary,
             children: chain.evolvesTo.map(buildEvolutionNode)
         )
+    }
+}
+
+private actor PokeAPIDiskCache {
+    static let shared = PokeAPIDiskCache()
+
+    private let directory: URL
+    private let fileManager = FileManager.default
+
+    private init() {
+        let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        directory = baseDirectory.appending(path: "PokeAPIResponses", directoryHint: .isDirectory)
+    }
+
+    func data(for url: URL) throws -> Data? {
+        try prepareDirectory()
+
+        let fileURL = fileURL(for: url)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return try Data(contentsOf: fileURL)
+    }
+
+    func save(_ data: Data, for url: URL) throws {
+        try prepareDirectory()
+        try data.write(to: fileURL(for: url), options: .atomic)
+    }
+
+    private func prepareDirectory() throws {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    private func fileURL(for url: URL) -> URL {
+        let key = Data(url.absoluteString.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return directory.appending(path: key).appendingPathExtension("json")
     }
 }
 
