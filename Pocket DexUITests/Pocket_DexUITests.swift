@@ -51,6 +51,23 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testGalleryNavigatesToTappedPokemon() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["UITEST_GALLERY"]
+        app.launch()
+
+        // Tap a specific mid-list Pokemon in the gallery.
+        let charizard = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Charizard")).firstMatch
+        XCTAssertTrue(charizard.waitForExistence(timeout: 30), "Gallery cells never appeared")
+        charizard.tap()
+
+        // The detail must be for the tapped Pokemon specifically (regression: it used to always
+        // open the last Pokemon). The detail sets its navigation title to the Pokemon's name.
+        XCTAssertTrue(app.navigationBars["Charizard"].waitForExistence(timeout: 30),
+                      "Did not navigate to the tapped Pokemon")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

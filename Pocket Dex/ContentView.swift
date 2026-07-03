@@ -14,7 +14,8 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
-    @State private var viewMode: PokemonListViewMode = .list
+    @State private var viewMode: PokemonListViewMode =
+        ProcessInfo.processInfo.arguments.contains("UITEST_GALLERY") ? .gallery : .list
     @State private var showingShinyGallery = false
     @State private var isLoading = false
     @State private var loadingError: String?
@@ -50,15 +51,14 @@ struct ContentView: View {
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 280, ideal: 340)
 #endif
+            // On iPhone the gallery has no detail column and its cells aren't NavigationLinks,
+            // so push the detail explicitly for the selected Pokemon.
+            .navigationDestination(item: compactGalleryDetail) { pokemon in
+                detailView(for: pokemon)
+            }
         } detail: {
             if let selectedPokemon {
-                PokemonDetailView(
-                    pokemon: selectedPokemon,
-                    previousPokemon: adjacentPokemon.previous,
-                    nextPokemon: adjacentPokemon.next,
-                    selectPokemon: { selectedPokemonID = $0.id },
-                    selectPokemonID: { selectedPokemonID = $0 }
-                )
+                detailView(for: selectedPokemon)
             } else {
                 ContentUnavailableView(
                     "Choose a Pokemon",
@@ -70,6 +70,31 @@ struct ContentView: View {
         .task {
             await loadPokemonIfNeeded()
         }
+    }
+
+    @ViewBuilder
+    private func detailView(for pokemon: PokemonSummary) -> some View {
+        PokemonDetailView(
+            pokemon: pokemon,
+            previousPokemon: adjacentPokemon.previous,
+            nextPokemon: adjacentPokemon.next,
+            selectPokemon: { selectedPokemonID = $0.id },
+            selectPokemonID: { selectedPokemonID = $0 }
+        )
+    }
+
+    // Drives the pushed detail only on compact-width gallery mode. On regular width the detail
+    // column handles it, and in list mode the List's NavigationLink handles the push.
+    private var compactGalleryDetail: Binding<PokemonSummary?> {
+        Binding(
+            get: {
+                guard !autoSelectsFirstPokemon, viewMode == .gallery else { return nil }
+                return selectedPokemon
+            },
+            set: { newValue in
+                if newValue == nil { selectedPokemonID = nil }
+            }
+        )
     }
 
     private var selectedPokemon: PokemonSummary? {
@@ -217,36 +242,28 @@ private struct PokemonListView: View {
     }
 
     @ViewBuilder private var galleryContent: some View {
-        List(selection: $selectedPokemonID) {
+        ScrollView {
             if pokemon.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, minHeight: 320)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16)], spacing: 16) {
                     ForEach(pokemon) { pokemon in
-                        PokemonGalleryCell(
-                            pokemon: pokemon,
-                            showingShiny: showingShiny,
-                            isSelected: pokemon.id == selectedPokemonID
-                        )
-                        // A transparent NavigationLink over the cell drives the same detail
-                        // navigation as the list rows (so tapping pushes the detail on iPhone),
-                        // while its disclosure chevron stays hidden.
-                        .overlay {
-                            NavigationLink(value: pokemon.id) { Color.clear }
-                                .opacity(0)
+                        Button {
+                            selectedPokemonID = pokemon.id
+                        } label: {
+                            PokemonGalleryCell(
+                                pokemon: pokemon,
+                                showingShiny: showingShiny,
+                                isSelected: pokemon.id == selectedPokemonID
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.vertical, 8)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .padding()
             }
         }
-        .listStyle(.plain)
     }
 
     @ViewBuilder private var emptyState: some View {
