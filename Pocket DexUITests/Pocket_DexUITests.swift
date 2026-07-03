@@ -53,7 +53,6 @@ final class Pocket_DexUITests: XCTestCase {
     @MainActor
     func testGalleryNavigatesToTappedPokemon() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["UITEST_GALLERY"]
         app.launch()
 
         // Tap a specific mid-list Pokemon in the gallery.

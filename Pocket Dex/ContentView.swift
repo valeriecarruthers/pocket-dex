@@ -19,8 +19,6 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
-    @State private var viewMode: PokemonListViewMode =
-        ProcessInfo.processInfo.arguments.contains("UITEST_GALLERY") ? .gallery : .list
     @State private var showingShiny = false
     @State private var isLoading = false
     @State private var loadingError: String?
@@ -47,7 +45,6 @@ struct ContentView: View {
                 searchText: $searchText,
                 sortOption: $sortOption,
                 selectedRegion: $selectedRegion,
-                viewMode: $viewMode,
                 showingShiny: $showingShiny,
                 isLoading: isLoading,
                 loadingError: loadingError,
@@ -89,12 +86,12 @@ struct ContentView: View {
         )
     }
 
-    // Drives the pushed detail only on compact-width gallery mode. On regular width the detail
-    // column handles it, and in list mode the List's NavigationLink handles the push.
+    // Drives the pushed detail on compact width, where there is no detail column and the gallery
+    // cells aren't NavigationLinks. On regular width the detail column handles it instead.
     private var compactGalleryDetail: Binding<PokemonSummary?> {
         Binding(
             get: {
-                guard !autoSelectsFirstPokemon, viewMode == .gallery else { return nil }
+                guard !autoSelectsFirstPokemon else { return nil }
                 return selectedPokemon
             },
             set: { newValue in
@@ -169,36 +166,18 @@ private struct PokemonListView: View {
     @Binding var searchText: String
     @Binding var sortOption: PokemonSortOption
     @Binding var selectedRegion: PokemonRegion
-    @Binding var viewMode: PokemonListViewMode
     @Binding var showingShiny: Bool
     let isLoading: Bool
     let loadingError: String?
     let retry: () async -> Void
 
     var body: some View {
-        Group {
-            switch viewMode {
-            case .list:
-                listContent
-            case .gallery:
-                galleryContent
-            }
-        }
+        galleryContent
         .navigationTitle("Pocket Dex")
         .searchable(text: $searchText, prompt: "Name or number")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 ShinyToggleButton(showingShiny: $showingShiny)
-            }
-
-            ToolbarItem(placement: .principal) {
-                Picker("View", selection: $viewMode) {
-                    ForEach(PokemonListViewMode.allCases) { mode in
-                        Label(mode.title, systemImage: mode.systemImage).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(minWidth: 160)
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
@@ -223,22 +202,6 @@ private struct PokemonListView: View {
         }
         .refreshable {
             await retry()
-        }
-    }
-
-    @ViewBuilder private var listContent: some View {
-        List(selection: $selectedPokemonID) {
-            if pokemon.isEmpty {
-                emptyState
-            } else {
-                Section("\(pokemon.count) Pokemon") {
-                    ForEach(pokemon) { pokemon in
-                        NavigationLink(value: pokemon.id) {
-                            PokemonRow(pokemon: pokemon)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -331,28 +294,6 @@ private struct PokemonGalleryCell: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(.tint, lineWidth: isSelected ? 3 : 0)
         }
-    }
-}
-
-private struct PokemonRow: View {
-    let pokemon: PokemonSummary
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(pokemon.formattedPokedexNumber)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(pokemon.displayName)
-                    .font(.headline)
-                Text(pokemon.region.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 
@@ -947,27 +888,6 @@ private struct EvolutionNode: Identifiable, Hashable {
 
     var spriteURL: URL? {
         URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/\(id).png")
-    }
-}
-
-private enum PokemonListViewMode: String, CaseIterable, Identifiable {
-    case list
-    case gallery
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .list: "List"
-        case .gallery: "Gallery"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .list: "list.bullet"
-        case .gallery: "square.grid.2x2"
-        }
     }
 }
 
