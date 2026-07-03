@@ -394,9 +394,14 @@ private struct PokemonListView: View {
     }
 
     private func regionHeader(_ region: PokemonRegion) -> some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(region.name)
                 .font(.headline)
+            if let range = region.numberRangeText {
+                Text(range)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
         }
         .padding(.vertical, 8)
