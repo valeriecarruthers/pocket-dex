@@ -905,15 +905,35 @@ private struct PokemonProfileView: View {
                     .font(.headline)
                 FlowLayout(spacing: 8) {
                     ForEach(detail.abilities, id: \.self) { ability in
-                        Text(ability.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.quaternary.opacity(0.7), in: Capsule())
+                        AbilityChip(ability: ability)
                     }
                 }
             }
         }
+    }
+}
+
+private struct AbilityChip: View {
+    let ability: PokemonAbility
+
+    private var color: Color { Color.forAbility(ability.name) }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(ability.displayName)
+                .fontWeight(.medium)
+            if ability.isHidden {
+                Image(systemName: "eye.slash")
+                    .imageScale(.small)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(color)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(color.opacity(0.16), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.45), lineWidth: 1))
+        .accessibilityLabel(ability.isHidden ? "\(ability.displayName), hidden ability" : ability.displayName)
     }
 }
 
@@ -1278,12 +1298,19 @@ private struct PokemonGame: Identifiable, Hashable {
     }
 }
 
+private struct PokemonAbility: Hashable {
+    let name: String
+    let isHidden: Bool
+
+    var displayName: String { name.displayName }
+}
+
 private struct PokemonDetail {
     let summary: PokemonSummary
     let regularImageURL: URL?
     let shinyImageURL: URL?
     let types: [String]
-    let abilities: [String]
+    let abilities: [PokemonAbility]
     let pokedexNames: [String]
     let height: Int
     let weight: Int
@@ -1519,7 +1546,7 @@ private struct PokeAPIClient {
             shinyImageURL: pokemon.sprites.bestShinyURL,
             types: pokemon.types.sorted { $0.slot < $1.slot }.map(\.type.name),
             abilities: pokemon.abilities.sorted { $0.slot < $1.slot }.map { ability in
-                ability.isHidden ? "\(ability.ability.name) hidden" : ability.ability.name
+                PokemonAbility(name: ability.ability.name, isHidden: ability.isHidden)
             },
             pokedexNames: species.regionalPokedexNames,
             height: pokemon.height,
@@ -1921,6 +1948,16 @@ private extension Color {
         case "fairy": Color(pokemonHex: 0xD685AD)
         default: Color.gray
         }
+    }
+
+    /// A stable, distinct colour for an ability name (deterministic across launches).
+    static func forAbility(_ name: String) -> Color {
+        let palette: [Color] = [
+            .blue, .green, .orange, .purple, .pink,
+            .teal, .indigo, .red, .mint, .cyan, .brown
+        ]
+        let hash = name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7FFFFFFF }
+        return palette[hash % palette.count]
     }
 }
 
