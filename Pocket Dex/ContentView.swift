@@ -330,6 +330,8 @@ private struct PokemonListView: View {
         }
     }
 
+    private let gridColumns = [GridItem(.adaptive(minimum: 120), spacing: 16)]
+
     @ViewBuilder private var galleryContent: some View {
         ScrollView {
             if !searchText.isEmpty {
@@ -341,24 +343,67 @@ private struct PokemonListView: View {
             if pokemon.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, minHeight: 320)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 16)], spacing: 16) {
-                    ForEach(pokemon) { pokemon in
-                        Button {
-                            selectedPokemonID = pokemon.id
-                        } label: {
-                            PokemonGalleryCell(
-                                pokemon: pokemon,
-                                showingShiny: showingShiny,
-                                isSelected: pokemon.id == selectedPokemonID
-                            )
+            } else if sortOption == .pokedexNumber {
+                // Sorted by number, regions are contiguous, so show sticky region headers.
+                LazyVGrid(columns: gridColumns, spacing: 16, pinnedViews: [.sectionHeaders]) {
+                    ForEach(regionSections) { section in
+                        Section {
+                            ForEach(section.pokemon) { pokemon in
+                                galleryCell(pokemon)
+                            }
+                        } header: {
+                            regionHeader(section.region)
                         }
-                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            } else {
+                LazyVGrid(columns: gridColumns, spacing: 16) {
+                    ForEach(pokemon) { pokemon in
+                        galleryCell(pokemon)
                     }
                 }
                 .padding()
             }
         }
+    }
+
+    @ViewBuilder private func galleryCell(_ pokemon: PokemonSummary) -> some View {
+        Button {
+            selectedPokemonID = pokemon.id
+        } label: {
+            PokemonGalleryCell(
+                pokemon: pokemon,
+                showingShiny: showingShiny,
+                isSelected: pokemon.id == selectedPokemonID
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func regionHeader(_ region: PokemonRegion) -> some View {
+        HStack {
+            Text(region.name)
+                .font(.headline)
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+    }
+
+    // Groups the (number-sorted) Pokemon into contiguous region sections.
+    private var regionSections: [RegionSection] {
+        var sections: [RegionSection] = []
+        for summary in pokemon {
+            if let last = sections.indices.last, sections[last].region == summary.region {
+                sections[last].pokemon.append(summary)
+            } else {
+                sections.append(RegionSection(region: summary.region, pokemon: [summary]))
+            }
+        }
+        return sections
     }
 
     // A button shown while searching that expands results to each match's full evolution family.
@@ -402,6 +447,12 @@ private struct PokemonListView: View {
             ContentUnavailableView.search(text: searchText)
         }
     }
+}
+
+private struct RegionSection: Identifiable {
+    let region: PokemonRegion
+    var pokemon: [PokemonSummary]
+    var id: PokemonRegion { region }
 }
 
 private struct ShinyToggleButton: View {

@@ -115,6 +115,16 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testGalleryShowsRegionHeaders() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Sorted by number by default, the first section header is the Kanto region.
+        XCTAssertTrue(app.staticTexts["Kanto"].waitForExistence(timeout: 30),
+                      "Region header not shown in the gallery")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
