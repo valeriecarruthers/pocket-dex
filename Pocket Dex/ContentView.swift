@@ -893,6 +893,7 @@ private struct PokemonProfileView: View {
     var body: some View {
         DetailSection(title: "Profile") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                StatCard(title: "Region", value: detail.summary.region.name, systemImage: "map")
                 StatCard(title: "Height", value: detail.heightText, systemImage: "ruler")
                 StatCard(title: "Weight", value: detail.weightText, systemImage: "scalemass")
                 StatCard(title: "Base XP", value: detail.baseExperienceText, systemImage: "star")

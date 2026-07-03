@@ -48,6 +48,9 @@ final class Pocket_DexUITests: XCTestCase {
         // The Profile section only renders once the species detail decodes successfully.
         let profileHeader = app.staticTexts["Profile"]
         XCTAssertTrue(profileHeader.waitForExistence(timeout: 30), "Pokemon detail never loaded")
+
+        // The profile should list the Pokemon's region.
+        XCTAssertTrue(app.staticTexts["Region"].waitForExistence(timeout: 10), "Region not shown in detail")
     }
 
     @MainActor
