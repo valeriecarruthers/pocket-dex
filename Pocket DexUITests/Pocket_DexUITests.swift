@@ -145,6 +145,22 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testDetailGamesGroupedByGeneration() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let bulbasaur = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch
+        XCTAssertTrue(bulbasaur.waitForExistence(timeout: 30), "Gallery never appeared")
+        bulbasaur.tap()
+
+        XCTAssertTrue(app.staticTexts["Profile"].waitForExistence(timeout: 30), "Detail never loaded")
+
+        // Bulbasaur appears in Gen 1 games, so the games list should be grouped by generation.
+        XCTAssertTrue(app.staticTexts["Generation I"].waitForExistence(timeout: 15),
+                      "Games are not grouped by generation")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

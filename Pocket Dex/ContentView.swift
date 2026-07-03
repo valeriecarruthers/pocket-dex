@@ -912,22 +912,94 @@ private struct PokemonProfileView: View {
 private struct PokemonGamesView: View {
     let games: [String]
 
+    // Games grouped by generation, in generation order; unknown versions fall into a trailing group.
+    private var groupedGames: [(generation: PokemonGeneration?, games: [String])] {
+        let grouped = Dictionary(grouping: games) { PokemonGeneration.forVersion($0) }
+        var result: [(PokemonGeneration?, [String])] = PokemonGeneration.allCases.compactMap { generation in
+            guard let list = grouped[generation], !list.isEmpty else { return nil }
+            return (generation, list)
+        }
+        if let others = grouped[nil], !others.isEmpty {
+            result.append((nil, others))
+        }
+        return result
+    }
+
     var body: some View {
         DetailSection(title: "Games") {
             if games.isEmpty {
                 Text("No game appearance data returned by PokeAPI.")
                     .foregroundStyle(.secondary)
             } else {
-                FlowLayout(spacing: 8) {
-                    ForEach(games, id: \.self) { game in
-                        Text(game.displayName)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(.quaternary.opacity(0.7), in: Capsule())
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(groupedGames, id: \.generation) { group in
+                        generationSection(group.generation, games: group.games)
                     }
                 }
             }
+        }
+    }
+
+    private func generationSection(_ generation: PokemonGeneration?, games: [String]) -> some View {
+        let color = generation?.color ?? .gray
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(generation?.title ?? "Other")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+
+            FlowLayout(spacing: 8) {
+                ForEach(games, id: \.self) { game in
+                    Text(game.displayName)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(color.opacity(0.22), in: Capsule())
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private enum PokemonGeneration: Int, CaseIterable, Identifiable {
+    case i = 1, ii, iii, iv, v, vi, vii, viii, ix
+
+    var id: Int { rawValue }
+
+    var title: String {
+        let numerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"]
+        return "Generation \(numerals[rawValue - 1])"
+    }
+
+    var color: Color {
+        switch self {
+        case .i: Color(pokemonHex: 0xE3350D)
+        case .ii: Color(pokemonHex: 0xC9A227)
+        case .iii: Color(pokemonHex: 0x00A651)
+        case .iv: Color(pokemonHex: 0x2E86DE)
+        case .v: Color(pokemonHex: 0x5D5D5D)
+        case .vi: Color(pokemonHex: 0xE0559A)
+        case .vii: Color(pokemonHex: 0xF0803C)
+        case .viii: Color(pokemonHex: 0x7A5CC8)
+        case .ix: Color(pokemonHex: 0x0E9594)
+        }
+    }
+
+    static func forVersion(_ version: String) -> PokemonGeneration? {
+        switch version {
+        case "red", "blue", "green", "yellow": .i
+        case "gold", "silver", "crystal": .ii
+        case "ruby", "sapphire", "emerald", "firered", "leafgreen", "colosseum", "xd": .iii
+        case "diamond", "pearl", "platinum", "heartgold", "soulsilver": .iv
+        case "black", "white", "black-2", "white-2": .v
+        case "x", "y", "omega-ruby", "alpha-sapphire": .vi
+        case "sun", "moon", "ultra-sun", "ultra-moon", "lets-go-pikachu", "lets-go-eevee": .vii
+        case "sword", "shield", "brilliant-diamond", "shining-pearl", "legends-arceus": .viii
+        case "scarlet", "violet": .ix
+        default: nil
         }
     }
 }
