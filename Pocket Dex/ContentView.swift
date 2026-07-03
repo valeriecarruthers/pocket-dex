@@ -19,6 +19,11 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
+    @State private var games: [PokemonGame] = []
+    @State private var selectedGame: PokemonGame?
+    @State private var gameSpeciesIDs: Set<Int>?
+    @State private var gameFilterCache: [Int: Set<Int>] = [:]
+    @State private var isLoadingGameFilter = false
     @State private var showingShiny = false
     @State private var isLoading = false
     @State private var loadingError: String?
@@ -45,8 +50,10 @@ struct ContentView: View {
                 searchText: $searchText,
                 sortOption: $sortOption,
                 selectedRegion: $selectedRegion,
+                games: games,
+                selectedGame: $selectedGame,
                 showingShiny: $showingShiny,
-                isLoading: isLoading,
+                isLoading: isLoading || isLoadingGameFilter,
                 loadingError: loadingError,
                 retry: loadPokemon
             )
@@ -71,6 +78,9 @@ struct ContentView: View {
         }
         .task {
             await loadPokemonIfNeeded()
+        }
+        .task(id: selectedGame) {
+            await applyGameFilter()
         }
     }
 
@@ -117,7 +127,14 @@ struct ContentView: View {
     }
 
     private var filteredPokemon: [PokemonSummary] {
-        let regionFiltered = pokemon.filter { selectedRegion.contains($0.pokedexNumber) }
+        let gameFiltered: [PokemonSummary]
+        if let gameSpeciesIDs {
+            gameFiltered = pokemon.filter { gameSpeciesIDs.contains($0.id) }
+        } else {
+            gameFiltered = pokemon
+        }
+
+        let regionFiltered = gameFiltered.filter { selectedRegion.contains($0.pokedexNumber) }
         let searched = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let searchFiltered: [PokemonSummary]
@@ -156,7 +173,35 @@ struct ContentView: View {
             loadingError = error.localizedDescription
         }
 
+        if games.isEmpty {
+            games = (try? await PokeAPIClient.shared.fetchGames()) ?? []
+        }
+
         isLoading = false
+    }
+
+    // Resolves which species appear in the selected game (cached per game) and updates the filter.
+    private func applyGameFilter() async {
+        guard let selectedGame else {
+            gameSpeciesIDs = nil
+            return
+        }
+
+        if let cached = gameFilterCache[selectedGame.id] {
+            gameSpeciesIDs = cached
+            return
+        }
+
+        isLoadingGameFilter = true
+        defer { isLoadingGameFilter = false }
+
+        if let ids = try? await PokeAPIClient.shared.fetchSpeciesIDs(forGame: selectedGame) {
+            gameFilterCache[selectedGame.id] = ids
+            // Guard against a race if the user changed games while this was loading.
+            if self.selectedGame == selectedGame {
+                gameSpeciesIDs = ids
+            }
+        }
     }
 }
 
@@ -166,10 +211,16 @@ private struct PokemonListView: View {
     @Binding var searchText: String
     @Binding var sortOption: PokemonSortOption
     @Binding var selectedRegion: PokemonRegion
+    let games: [PokemonGame]
+    @Binding var selectedGame: PokemonGame?
     @Binding var showingShiny: Bool
     let isLoading: Bool
     let loadingError: String?
     let retry: () async -> Void
+
+    private var filtersActive: Bool {
+        selectedRegion != .all || selectedGame != nil
+    }
 
     var body: some View {
         galleryContent
@@ -181,22 +232,34 @@ private struct PokemonListView: View {
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
-                Picker("Region", selection: $selectedRegion) {
-                    ForEach(PokemonRegion.allCases) { region in
-                        Text(region.name).tag(region)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                Picker("Sort", selection: $sortOption) {
-                    ForEach(PokemonSortOption.allCases) { option in
-                        Label(option.title, systemImage: option.systemImage).tag(option)
-                    }
-                }
-                .pickerStyle(.menu)
-
                 if isLoading {
                     ProgressView()
+                }
+
+                Menu {
+                    Picker("Region", selection: $selectedRegion) {
+                        ForEach(PokemonRegion.allCases) { region in
+                            Text(region.name).tag(region)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker("Game", selection: $selectedGame) {
+                        Text("All Games").tag(PokemonGame?.none)
+                        ForEach(games) { game in
+                            Text(game.displayName).tag(PokemonGame?.some(game))
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker("Sort", selection: $sortOption) {
+                        ForEach(PokemonSortOption.allCases) { option in
+                            Label(option.title, systemImage: option.systemImage).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } label: {
+                    Label("Filter & Sort", systemImage: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
             }
         }
@@ -846,6 +909,17 @@ private struct PokemonSummary: Identifiable, Hashable {
     }
 }
 
+/// A playable game, modelled on PokeAPI's version groups (e.g. "scarlet-violet").
+private struct PokemonGame: Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let url: URL
+
+    var displayName: String {
+        name.displayName
+    }
+}
+
 private struct PokemonDetail {
     let summary: PokemonSummary
     let regularImageURL: URL?
@@ -991,6 +1065,35 @@ private struct PokeAPIClient {
             guard let id = resource.id else { return nil }
             return PokemonSummary(id: id, name: resource.name, url: resource.url)
         }
+    }
+
+    func fetchGames() async throws -> [PokemonGame] {
+        let listURL = baseURL.appending(path: "version-group")
+            .appending(queryItems: [URLQueryItem(name: "limit", value: "100")])
+        let resourceList: PokeAPIResourceList = try await fetch(listURL)
+
+        return resourceList.results
+            .compactMap { resource in
+                guard let id = resource.id else { return nil }
+                return PokemonGame(id: id, name: resource.name, url: resource.url)
+            }
+            .sorted { $0.id < $1.id }
+    }
+
+    /// The national dex ids of every species appearing in the given game's Pokedex(es).
+    func fetchSpeciesIDs(forGame game: PokemonGame) async throws -> Set<Int> {
+        let versionGroup: PokeAPIVersionGroupResponse = try await fetch(game.url)
+
+        var ids = Set<Int>()
+        for pokedex in versionGroup.pokedexes {
+            guard let dex: PokeAPIPokedexResponse = try? await fetch(pokedex.url) else { continue }
+            for entry in dex.pokemonEntries {
+                if let id = entry.pokemonSpecies.id {
+                    ids.insert(id)
+                }
+            }
+        }
+        return ids
     }
 
     func fetchPokemonDetail(for summary: PokemonSummary) async throws -> PokemonDetail {
@@ -1161,6 +1264,26 @@ private struct PokeAPIResource: Decodable, Hashable {
         url.pathComponents
             .last { component in Int(component) != nil }
             .flatMap(Int.init)
+    }
+}
+
+private struct PokeAPIVersionGroupResponse: Decodable {
+    let pokedexes: [PokeAPIResource]
+}
+
+private struct PokeAPIPokedexResponse: Decodable {
+    let pokemonEntries: [PokeAPIPokedexEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case pokemonEntries = "pokemon_entries"
+    }
+}
+
+private struct PokeAPIPokedexEntry: Decodable {
+    let pokemonSpecies: PokeAPIResource
+
+    enum CodingKeys: String, CodingKey {
+        case pokemonSpecies = "pokemon_species"
     }
 }
 

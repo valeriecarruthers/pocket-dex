@@ -67,6 +67,28 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testGameFilterExcludesOtherGenerations() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        // Open the filter menu and choose a Kanto-only game (Red/Blue).
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Filter")).firstMatch.tap()
+        app.buttons["Game"].firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red Blue")).firstMatch.tap()
+
+        // Chikorita (Gen 2) is not in Red/Blue, so once the filter applies it must disappear.
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Chikorita")
+        let chikorita = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Chikorita")).firstMatch
+        XCTAssertTrue(chikorita.waitForNonExistence(timeout: 25), "Chikorita should be filtered out for Red/Blue")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
