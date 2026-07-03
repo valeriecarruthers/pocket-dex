@@ -79,6 +79,10 @@ final class Pocket_DexUITests: XCTestCase {
         app.buttons["Game"].firstMatch.tap()
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red Blue")).firstMatch.tap()
 
+        // An active-filter chip for the selected game should appear in the gallery.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red Blue")).firstMatch.waitForExistence(timeout: 15),
+                      "Active filter chip not shown")
+
         // Chikorita (Gen 2) is not in Red/Blue, so once the filter applies it must disappear.
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 10))

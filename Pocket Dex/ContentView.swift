@@ -290,14 +290,6 @@ private struct PokemonListView: View {
         .searchable(text: $searchText, prompt: "Name or number")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                ShinyToggleButton(showingShiny: $showingShiny)
-            }
-
-            ToolbarItemGroup(placement: .primaryAction) {
-                if isLoading {
-                    ProgressView()
-                }
-
                 Menu {
                     Picker("Region", selection: $selectedRegion) {
                         ForEach(PokemonRegion.allCases) { region in
@@ -324,6 +316,14 @@ private struct PokemonListView: View {
                     Label("Filter & Sort", systemImage: filtersActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
             }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                if isLoading {
+                    ProgressView()
+                }
+
+                ShinyToggleButton(showingShiny: $showingShiny)
+            }
         }
         .refreshable {
             await retry()
@@ -334,6 +334,11 @@ private struct PokemonListView: View {
 
     @ViewBuilder private var galleryContent: some View {
         ScrollView {
+            if selectedRegion != .all || selectedGame != nil {
+                activeFilterChips
+                    .padding(.top, 8)
+            }
+
             if !searchText.isEmpty {
                 evolutionLineToggle
                     .padding(.horizontal)
@@ -394,18 +399,24 @@ private struct PokemonListView: View {
     }
 
     private func regionHeader(_ region: PokemonRegion) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(.tint)
+                .frame(width: 4, height: 24)
+
             Text(region.name)
-                .font(.headline)
+                .font(.system(.title3, design: .rounded).weight(.bold))
+
             if let range = region.numberRangeText {
                 Text(range)
-                    .font(.caption.monospacedDigit())
+                    .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
             Spacer()
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .padding(.horizontal)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
     }
@@ -421,6 +432,25 @@ private struct PokemonListView: View {
             }
         }
         return sections
+    }
+
+    // Shows the currently active region/game filters as removable chips.
+    @ViewBuilder private var activeFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if selectedRegion != .all {
+                    FilterChip(title: selectedRegion.name, systemImage: "map") {
+                        selectedRegion = .all
+                    }
+                }
+                if let game = selectedGame {
+                    FilterChip(title: game.displayName, systemImage: "gamecontroller") {
+                        selectedGame = nil
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
     }
 
     // A button shown while searching that expands results to each match's full evolution family.
@@ -463,6 +493,31 @@ private struct PokemonListView: View {
         } else {
             ContentUnavailableView.search(text: searchText)
         }
+    }
+}
+
+private struct FilterChip: View {
+    let title: String
+    let systemImage: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        Button(action: onRemove) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Image(systemName: "xmark.circle.fill")
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.tint.opacity(0.15), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .accessibilityLabel("Remove \(title) filter")
     }
 }
 
@@ -565,11 +620,7 @@ private struct PokemonDetailView: View {
         }
         .navigationTitle(pokemon.displayName)
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ShinyToggleButton(showingShiny: $showingShiny)
-            }
-
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     if let previousPokemon {
                         selectPokemon(previousPokemon)
@@ -587,6 +638,8 @@ private struct PokemonDetailView: View {
                     Label("Next", systemImage: "chevron.right")
                 }
                 .disabled(nextPokemon == nil)
+
+                ShinyToggleButton(showingShiny: $showingShiny)
             }
         }
         .task(id: pokemon.id) {
