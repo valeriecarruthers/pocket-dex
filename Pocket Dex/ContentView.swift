@@ -21,7 +21,7 @@ struct ContentView: View {
     @State private var selectedRegion: PokemonRegion = .all
     @State private var viewMode: PokemonListViewMode =
         ProcessInfo.processInfo.arguments.contains("UITEST_GALLERY") ? .gallery : .list
-    @State private var showingShinyGallery = false
+    @State private var showingShiny = false
     @State private var isLoading = false
     @State private var loadingError: String?
 
@@ -48,7 +48,7 @@ struct ContentView: View {
                 sortOption: $sortOption,
                 selectedRegion: $selectedRegion,
                 viewMode: $viewMode,
-                showingShiny: $showingShinyGallery,
+                showingShiny: $showingShiny,
                 isLoading: isLoading,
                 loadingError: loadingError,
                 retry: loadPokemon
@@ -83,6 +83,7 @@ struct ContentView: View {
             pokemon: pokemon,
             previousPokemon: adjacentPokemon.previous,
             nextPokemon: adjacentPokemon.next,
+            showingShiny: $showingShiny,
             selectPokemon: { selectedPokemonID = $0.id },
             selectPokemonID: { selectedPokemonID = $0 }
         )
@@ -186,6 +187,10 @@ private struct PokemonListView: View {
         .navigationTitle("Pocket Dex")
         .searchable(text: $searchText, prompt: "Name or number")
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                ShinyToggleButton(showingShiny: $showingShiny)
+            }
+
             ToolbarItem(placement: .principal) {
                 Picker("View", selection: $viewMode) {
                     ForEach(PokemonListViewMode.allCases) { mode in
@@ -197,15 +202,6 @@ private struct PokemonListView: View {
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
-                if viewMode == .gallery {
-                    Button {
-                        showingShiny.toggle()
-                    } label: {
-                        Label("Shiny", systemImage: showingShiny ? "sparkles.rectangle.stack.fill" : "sparkles")
-                    }
-                    .tint(showingShiny ? .yellow : nil)
-                }
-
                 Picker("Region", selection: $selectedRegion) {
                     ForEach(PokemonRegion.allCases) { region in
                         Text(region.name).tag(region)
@@ -290,6 +286,20 @@ private struct PokemonListView: View {
     }
 }
 
+private struct ShinyToggleButton: View {
+    @Binding var showingShiny: Bool
+
+    var body: some View {
+        Button {
+            showingShiny.toggle()
+        } label: {
+            Label("Shiny", systemImage: showingShiny ? "sparkles.rectangle.stack.fill" : "sparkles")
+        }
+        .tint(showingShiny ? .yellow : nil)
+        .help(showingShiny ? "Show regular artwork" : "Show shiny artwork")
+    }
+}
+
 private struct PokemonGalleryCell: View {
     let pokemon: PokemonSummary
     let showingShiny: Bool
@@ -350,13 +360,13 @@ private struct PokemonDetailView: View {
     let pokemon: PokemonSummary
     let previousPokemon: PokemonSummary?
     let nextPokemon: PokemonSummary?
+    @Binding var showingShiny: Bool
     let selectPokemon: (PokemonSummary) -> Void
     let selectPokemonID: (Int) -> Void
 
     @State private var detail: PokemonDetail?
     @State private var isLoading = false
     @State private var loadingError: String?
-    @State private var showingShiny = false
 
     var body: some View {
         ScrollView {
@@ -391,6 +401,10 @@ private struct PokemonDetailView: View {
         }
         .navigationTitle(pokemon.displayName)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                ShinyToggleButton(showingShiny: $showingShiny)
+            }
+
             ToolbarItemGroup {
                 Button {
                     if let previousPokemon {
@@ -419,7 +433,6 @@ private struct PokemonDetailView: View {
     private func loadDetail() async {
         isLoading = true
         loadingError = nil
-        showingShiny = false
 
         do {
             detail = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
@@ -491,14 +504,6 @@ private struct PokemonHeroView: View {
                     }
 
                     TypeChips(types: detail.types)
-
-                    Button {
-                        showingShiny.toggle()
-                    } label: {
-                        Label(showingShiny ? "Show Regular" : "Show Shiny", systemImage: showingShiny ? "circle.lefthalf.filled" : "sparkles")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(detail.shinyImageURL == nil)
                 }
             }
 
