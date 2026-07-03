@@ -937,24 +937,79 @@ private struct PokemonProfileView: View {
 private struct AbilityChip: View {
     let ability: PokemonAbility
 
+    @State private var showingInfo = false
+    @State private var description: String?
+    @State private var isLoading = false
+
     private var color: Color { Color.forAbility(ability.name) }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(ability.displayName)
-                .fontWeight(.medium)
-            if ability.isHidden {
-                Image(systemName: "eye.slash")
+        Button {
+            showingInfo = true
+            Task { await loadDescription() }
+        } label: {
+            HStack(spacing: 4) {
+                Text(ability.displayName)
+                    .fontWeight(.medium)
+                if ability.isHidden {
+                    Image(systemName: "eye.slash")
+                        .imageScale(.small)
+                }
+                Image(systemName: "info.circle")
                     .imageScale(.small)
+                    .opacity(0.6)
+            }
+            .font(.caption)
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.16), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.45), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(ability.isHidden ? "\(ability.displayName), hidden ability" : ability.displayName)
+        .popover(isPresented: $showingInfo) {
+            abilityPopover
+        }
+    }
+
+    private var abilityPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(ability.displayName)
+                    .font(.headline)
+                    .foregroundStyle(color)
+                if ability.isHidden {
+                    Text("Hidden")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.secondary.opacity(0.2), in: Capsule())
+                }
+            }
+
+            if isLoading {
+                ProgressView()
+            } else if let description {
+                Text(description)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("No description available.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
-        .font(.caption)
-        .foregroundStyle(color)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(color.opacity(0.16), in: Capsule())
-        .overlay(Capsule().strokeBorder(color.opacity(0.45), lineWidth: 1))
-        .accessibilityLabel(ability.isHidden ? "\(ability.displayName), hidden ability" : ability.displayName)
+        .padding()
+        .frame(minWidth: 260, idealWidth: 300, maxWidth: 320, alignment: .leading)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private func loadDescription() async {
+        guard description == nil else { return }
+        isLoading = true
+        description = try? await PokeAPIClient.shared.fetchAbilityDescription(named: ability.name)
+        isLoading = false
     }
 }
 
@@ -1535,6 +1590,13 @@ private struct PokeAPIClient {
         }
     }
 
+    /// A short description of what an ability does (fetched on demand, cached on disk).
+    func fetchAbilityDescription(named name: String) async throws -> String? {
+        let url = baseURL.appending(path: "ability").appending(path: name)
+        let response: PokeAPIAbilityResponse = try await fetch(url)
+        return response.englishDescription
+    }
+
     /// The national dex ids of every species in the given species' evolution family.
     func fetchEvolutionFamily(forSpeciesID id: Int) async throws -> [Int] {
         let species: PokeAPISpeciesResponse = try await fetch(speciesURL(for: id))
@@ -1872,6 +1934,35 @@ private struct PokeAPIFlavorTextEntry: Decodable {
 private struct PokeAPIGenus: Decodable {
     let genus: String
     let language: PokeAPIResource
+}
+
+private struct PokeAPIAbilityResponse: Decodable {
+    let effectEntries: [PokeAPIEffectEntry]
+    let flavorTextEntries: [PokeAPIFlavorTextEntry]
+
+    var englishDescription: String? {
+        if let entry = effectEntries.first(where: { $0.language.name == "en" }) {
+            return (entry.shortEffect ?? entry.effect)?.cleanedPokeAPIText
+        }
+        return flavorTextEntries.first(where: { $0.language.name == "en" })?.flavorText.cleanedPokeAPIText
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case effectEntries = "effect_entries"
+        case flavorTextEntries = "flavor_text_entries"
+    }
+}
+
+private struct PokeAPIEffectEntry: Decodable {
+    let effect: String?
+    let shortEffect: String?
+    let language: PokeAPIResource
+
+    enum CodingKeys: String, CodingKey {
+        case effect
+        case shortEffect = "short_effect"
+        case language
+    }
 }
 
 private struct PokeAPIEvolutionChainResponse: Decodable {

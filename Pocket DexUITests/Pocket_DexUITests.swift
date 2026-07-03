@@ -181,6 +181,26 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testAbilityDescriptionPopover() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let bulbasaur = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch
+        XCTAssertTrue(bulbasaur.waitForExistence(timeout: 30), "Gallery never appeared")
+        bulbasaur.tap()
+
+        XCTAssertTrue(app.staticTexts["Profile"].waitForExistence(timeout: 30), "Detail never loaded")
+
+        // Tap Bulbasaur's Overgrow ability; a popover should show its Grass-related description.
+        let overgrow = app.buttons["Overgrow"]
+        XCTAssertTrue(overgrow.waitForExistence(timeout: 10), "Ability chip missing")
+        overgrow.tap()
+
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Grass")).firstMatch.waitForExistence(timeout: 20),
+                      "Ability description not shown")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
