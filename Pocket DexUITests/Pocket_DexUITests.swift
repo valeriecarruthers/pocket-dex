@@ -125,6 +125,22 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testRegionFilterShowsNumberRanges() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Filter")).firstMatch.tap()
+        app.buttons["Region"].firstMatch.tap()
+
+        // The Kanto option should include its dex range (1–151).
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "151")).firstMatch.waitForExistence(timeout: 10),
+                      "Region option is missing its number range")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

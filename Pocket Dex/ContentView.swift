@@ -301,7 +301,7 @@ private struct PokemonListView: View {
                 Menu {
                     Picker("Region", selection: $selectedRegion) {
                         ForEach(PokemonRegion.allCases) { region in
-                            Text(region.name).tag(region)
+                            regionLabel(region).tag(region)
                         }
                     }
                     .pickerStyle(.menu)
@@ -379,6 +379,18 @@ private struct PokemonListView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    // Region name with its dex number range appended in a smaller, secondary style.
+    private func regionLabel(_ region: PokemonRegion) -> Text {
+        var label = AttributedString(region.name)
+        if let range = region.numberRangeText {
+            var suffix = AttributedString("  \(range)")
+            suffix.font = .caption2
+            suffix.foregroundColor = .secondary
+            label.append(suffix)
+        }
+        return Text(label)
     }
 
     private func regionHeader(_ region: PokemonRegion) -> some View {
@@ -1163,6 +1175,11 @@ private enum PokemonRegion: String, CaseIterable, Identifiable {
         case .galar: 810...905
         case .paldea: 906...1025
         }
+    }
+
+    var numberRangeText: String? {
+        guard let range else { return nil }
+        return "\(range.lowerBound)–\(range.upperBound)"
     }
 
     func contains(_ pokedexNumber: Int) -> Bool {
