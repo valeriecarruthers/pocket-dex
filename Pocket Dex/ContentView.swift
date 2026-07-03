@@ -24,6 +24,10 @@ struct ContentView: View {
     @State private var gameSpeciesIDs: Set<Int>?
     @State private var gameFilterCache: [Int: Set<Int>] = [:]
     @State private var isLoadingGameFilter = false
+    @State private var includeEvolutionLines = false
+    @State private var expandedEvolutionIDs: Set<Int> = []
+    @State private var evolutionFamilyCache: [Int: [Int]] = [:]
+    @State private var isLoadingEvolutions = false
     @State private var showingShiny = false
     @State private var isLoading = false
     @State private var loadingError: String?
@@ -52,8 +56,9 @@ struct ContentView: View {
                 selectedRegion: $selectedRegion,
                 games: games,
                 selectedGame: $selectedGame,
+                includeEvolutionLines: $includeEvolutionLines,
                 showingShiny: $showingShiny,
-                isLoading: isLoading || isLoadingGameFilter,
+                isLoading: isLoading || isLoadingGameFilter || isLoadingEvolutions,
                 loadingError: loadingError,
                 retry: loadPokemon
             )
@@ -81,6 +86,9 @@ struct ContentView: View {
         }
         .task(id: selectedGame) {
             await applyGameFilter()
+        }
+        .task(id: evolutionExpansionKey) {
+            await updateEvolutionExpansion()
         }
     }
 
@@ -126,33 +134,57 @@ struct ContentView: View {
         return (previous, next)
     }
 
-    private var filteredPokemon: [PokemonSummary] {
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Pokemon passing the game and region filters, before any text search.
+    private var gameAndRegionFiltered: [PokemonSummary] {
         let gameFiltered: [PokemonSummary]
         if let gameSpeciesIDs {
             gameFiltered = pokemon.filter { gameSpeciesIDs.contains($0.id) }
         } else {
             gameFiltered = pokemon
         }
+        return gameFiltered.filter { selectedRegion.contains($0.pokedexNumber) }
+    }
 
-        let regionFiltered = gameFiltered.filter { selectedRegion.contains($0.pokedexNumber) }
-        let searched = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func matchesSearch(_ pokemon: PokemonSummary, _ searched: String) -> Bool {
+        pokemon.displayName.localizedStandardContains(searched)
+            || String(pokemon.pokedexNumber).contains(searched)
+    }
 
-        let searchFiltered: [PokemonSummary]
+    // Pokemon matching the search text directly — the seeds for evolution-line expansion.
+    private var directSearchMatches: [PokemonSummary] {
+        let searched = trimmedSearch
+        guard !searched.isEmpty else { return gameAndRegionFiltered }
+        return gameAndRegionFiltered.filter { matchesSearch($0, searched) }
+    }
+
+    private var filteredPokemon: [PokemonSummary] {
+        let searched = trimmedSearch
+        let filtered: [PokemonSummary]
         if searched.isEmpty {
-            searchFiltered = regionFiltered
+            filtered = gameAndRegionFiltered
         } else {
-            searchFiltered = regionFiltered.filter { pokemon in
-                pokemon.displayName.localizedStandardContains(searched)
-                || String(pokemon.pokedexNumber).contains(searched)
+            filtered = gameAndRegionFiltered.filter { pokemon in
+                matchesSearch(pokemon, searched)
+                    || (includeEvolutionLines && expandedEvolutionIDs.contains(pokemon.id))
             }
         }
 
         switch sortOption {
         case .pokedexNumber:
-            return searchFiltered.sorted { $0.pokedexNumber < $1.pokedexNumber }
+            return filtered.sorted { $0.pokedexNumber < $1.pokedexNumber }
         case .name:
-            return searchFiltered.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+            return filtered.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
         }
+    }
+
+    // Identifies which search matches to expand; changes here re-run the expansion task.
+    private var evolutionExpansionKey: [Int] {
+        guard includeEvolutionLines, !trimmedSearch.isEmpty else { return [] }
+        return directSearchMatches.map(\.id)
     }
 
     private func loadPokemonIfNeeded() async {
@@ -203,6 +235,35 @@ struct ContentView: View {
             }
         }
     }
+
+    // Expands the current search matches to include every member of their evolution families.
+    private func updateEvolutionExpansion() async {
+        let seedIDs = evolutionExpansionKey
+        guard !seedIDs.isEmpty else {
+            expandedEvolutionIDs = []
+            return
+        }
+
+        isLoadingEvolutions = true
+        defer { isLoadingEvolutions = false }
+
+        var union = Set<Int>()
+        for id in seedIDs {
+            if Task.isCancelled { return }
+
+            if let family = evolutionFamilyCache[id] {
+                union.formUnion(family)
+            } else if let family = try? await PokeAPIClient.shared.fetchEvolutionFamily(forSpeciesID: id) {
+                // Cache the whole family under each of its members.
+                for member in family { evolutionFamilyCache[member] = family }
+                union.formUnion(family)
+            }
+        }
+
+        if !Task.isCancelled {
+            expandedEvolutionIDs = union
+        }
+    }
 }
 
 private struct PokemonListView: View {
@@ -213,6 +274,7 @@ private struct PokemonListView: View {
     @Binding var selectedRegion: PokemonRegion
     let games: [PokemonGame]
     @Binding var selectedGame: PokemonGame?
+    @Binding var includeEvolutionLines: Bool
     @Binding var showingShiny: Bool
     let isLoading: Bool
     let loadingError: String?
@@ -270,6 +332,12 @@ private struct PokemonListView: View {
 
     @ViewBuilder private var galleryContent: some View {
         ScrollView {
+            if !searchText.isEmpty {
+                evolutionLineToggle
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
+
             if pokemon.isEmpty {
                 emptyState
                     .frame(maxWidth: .infinity, minHeight: 320)
@@ -291,6 +359,30 @@ private struct PokemonListView: View {
                 .padding()
             }
         }
+    }
+
+    // A button shown while searching that expands results to each match's full evolution family.
+    private var evolutionLineToggle: some View {
+        Button {
+            includeEvolutionLines.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.branch")
+                Text(includeEvolutionLines ? "Showing full evolution lines" : "Include evolution lines")
+                    .fontWeight(.medium)
+                Spacer(minLength: 0)
+                Image(systemName: includeEvolutionLines ? "checkmark.circle.fill" : "circle")
+            }
+            .font(.subheadline)
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(
+                (includeEvolutionLines ? Color.green.opacity(0.18) : Color.gray.opacity(0.12)),
+                in: RoundedRectangle(cornerRadius: 10)
+            )
+        }
+        .buttonStyle(.plain)
+        .tint(includeEvolutionLines ? .green : .secondary)
     }
 
     @ViewBuilder private var emptyState: some View {
@@ -1093,6 +1185,20 @@ private struct PokeAPIClient {
                 }
             }
         }
+        return ids
+    }
+
+    /// The national dex ids of every species in the given species' evolution family.
+    func fetchEvolutionFamily(forSpeciesID id: Int) async throws -> [Int] {
+        let species: PokeAPISpeciesResponse = try await fetch(speciesURL(for: id))
+        let chain: PokeAPIEvolutionChainResponse = try await fetch(species.evolutionChain.url)
+
+        var ids: [Int] = []
+        func walk(_ link: PokeAPIEvolutionLink) {
+            if let sid = link.species.id { ids.append(sid) }
+            link.evolvesTo.forEach(walk)
+        }
+        walk(chain.chain)
         return ids
     }
 

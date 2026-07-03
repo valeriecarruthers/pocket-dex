@@ -89,6 +89,32 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testSearchEvolutionLineExpansion() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Charizard")
+
+        // Charmander does not match the text "Charizard".
+        let charmander = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Charmander")).firstMatch
+        XCTAssertFalse(charmander.waitForExistence(timeout: 2), "Charmander should not match the text search alone")
+
+        // Turn on evolution-line inclusion.
+        let toggle = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "evolution lines")).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Evolution-line toggle missing")
+        toggle.tap()
+
+        // Charmander (Charizard's base form) should now be included.
+        XCTAssertTrue(charmander.waitForExistence(timeout: 25), "Charmander should appear once evolution lines are included")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
