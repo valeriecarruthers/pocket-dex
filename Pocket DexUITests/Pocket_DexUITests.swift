@@ -164,6 +164,23 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testShinyToggleVisibleWhileSearching() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("char")
+
+        // The shiny toggle must remain reachable while searching.
+        XCTAssertTrue(app.buttons["Shiny"].waitForExistence(timeout: 5), "Shiny toggle hidden during search")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

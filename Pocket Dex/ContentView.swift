@@ -340,9 +340,12 @@ private struct PokemonListView: View {
             }
 
             if !searchText.isEmpty {
-                evolutionLineToggle
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+                HStack(spacing: 8) {
+                    evolutionLineToggle
+                    searchShinyToggle
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
             }
 
             if pokemon.isEmpty {
@@ -451,6 +454,24 @@ private struct PokemonListView: View {
             }
             .padding(.horizontal)
         }
+    }
+
+    // Shiny toggle for the results area — the nav-bar shiny button is hidden while searching.
+    private var searchShinyToggle: some View {
+        Button {
+            showingShiny.toggle()
+        } label: {
+            Image(systemName: showingShiny ? "sparkles.rectangle.stack.fill" : "sparkles")
+                .font(.subheadline)
+                .padding(12)
+                .background(
+                    (showingShiny ? Color.yellow.opacity(0.2) : Color.gray.opacity(0.12)),
+                    in: RoundedRectangle(cornerRadius: 10)
+                )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(showingShiny ? .yellow : .secondary)
+        .accessibilityLabel("Shiny")
     }
 
     // A button shown while searching that expands results to each match's full evolution family.
