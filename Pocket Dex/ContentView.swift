@@ -7,6 +7,11 @@
 
 import SwiftUI
 import SwiftData
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 struct ContentView: View {
     @State private var pokemon: [PokemonSummary] = []
@@ -294,6 +299,7 @@ private struct PokemonGalleryCell: View {
         VStack(spacing: 8) {
             PokemonArtworkView(
                 url: showingShiny ? pokemon.shinyArtworkURL : pokemon.artworkURL,
+                lowResURL: showingShiny ? pokemon.shinySpriteURL : pokemon.spriteURL,
                 title: pokemon.displayName
             )
             .frame(height: 120)
@@ -458,7 +464,12 @@ private struct PokemonHeroView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 20) {
-                PokemonArtworkView(url: activeImageURL, title: detail.summary.displayName, tint: primaryTypeColor)
+                PokemonArtworkView(
+                    url: activeImageURL,
+                    lowResURL: showingShiny ? detail.summary.shinySpriteURL : detail.summary.spriteURL,
+                    title: detail.summary.displayName,
+                    tint: primaryTypeColor
+                )
                     .frame(width: artworkSize, height: artworkSize)
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -502,6 +513,7 @@ private struct PokemonHeroView: View {
 
 private struct PokemonArtworkView: View {
     let url: URL?
+    var lowResURL: URL? = nil
     let title: String
     var tint: Color? = nil
 
@@ -513,30 +525,117 @@ private struct PokemonArtworkView: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(tint?.opacity(0.18) ?? Color.clear)
 
-            if let url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .padding(12)
-                            .accessibilityLabel(title)
-                    case .failure:
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-            } else {
+            CachedAsyncImage(url: url, lowResURL: lowResURL, title: title)
+                .padding(12)
+        }
+    }
+}
+
+#if canImport(UIKit)
+private typealias PlatformImage = UIImage
+#elseif canImport(AppKit)
+private typealias PlatformImage = NSImage
+#endif
+
+private extension Image {
+    init(platformImage: PlatformImage) {
+        #if canImport(UIKit)
+        self.init(uiImage: platformImage)
+        #elseif canImport(AppKit)
+        self.init(nsImage: platformImage)
+        #endif
+    }
+}
+
+/// Loads Pokemon images with an in-memory + on-disk cache so scrolling back is instant
+/// and already-seen images never re-download.
+private final class PokemonImageCache {
+    static let shared = PokemonImageCache()
+
+    private let memory = NSCache<NSURL, PlatformImage>()
+    private let session: URLSession
+
+    private init() {
+        memory.countLimit = 600
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.urlCache = URLCache(
+            memoryCapacity: 40 * 1024 * 1024,
+            diskCapacity: 400 * 1024 * 1024,
+            diskPath: "PokeAPIImages"
+        )
+        session = URLSession(configuration: configuration)
+    }
+
+    func cachedImage(for url: URL) -> PlatformImage? {
+        memory.object(forKey: url as NSURL)
+    }
+
+    func image(for url: URL) async -> PlatformImage? {
+        if let cached = cachedImage(for: url) { return cached }
+        guard let (data, _) = try? await session.data(from: url),
+              let image = PlatformImage(data: data) else { return nil }
+        memory.setObject(image, forKey: url as NSURL)
+        return image
+    }
+}
+
+/// Progressive, cached image view: shows the tiny sprite first (near-instant) then swaps in the
+/// high-resolution artwork once it arrives. A cached high-res image appears immediately.
+private struct CachedAsyncImage: View {
+    let url: URL?
+    var lowResURL: URL? = nil
+    let title: String
+
+    @State private var image: PlatformImage?
+    @State private var didFail = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(platformImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .accessibilityLabel(title)
+            } else if didFail {
                 Image(systemName: "photo")
                     .font(.largeTitle)
                     .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
             }
+        }
+        .task(id: url) {
+            await load()
+        }
+    }
+
+    private func load() async {
+        image = nil
+        didFail = false
+
+        guard let url else {
+            didFail = true
+            return
+        }
+
+        // Instant path: high-res already decoded in memory.
+        if let cached = PokemonImageCache.shared.cachedImage(for: url) {
+            image = cached
+            return
+        }
+
+        // Progressive preview: show the tiny sprite while the artwork downloads.
+        if let lowResURL,
+           PokemonImageCache.shared.cachedImage(for: url) == nil,
+           let preview = await PokemonImageCache.shared.image(for: lowResURL) {
+            if image == nil { image = preview }
+        }
+
+        if let full = await PokemonImageCache.shared.image(for: url) {
+            image = full
+        } else if image == nil {
+            didFail = true
         }
     }
 }
@@ -780,14 +879,24 @@ private struct PokemonSummary: Identifiable, Hashable {
         PokemonRegion.region(for: pokedexNumber)
     }
 
-    private static let artworkBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork"
+    private static let spriteBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
 
+    // High-quality official artwork used as the final gallery/detail image.
     var artworkURL: URL? {
-        URL(string: "\(Self.artworkBase)/\(id).png")
+        URL(string: "\(Self.spriteBase)/other/official-artwork/\(id).png")
     }
 
     var shinyArtworkURL: URL? {
-        URL(string: "\(Self.artworkBase)/shiny/\(id).png")
+        URL(string: "\(Self.spriteBase)/other/official-artwork/shiny/\(id).png")
+    }
+
+    // Tiny (~1 KB) pixel sprites used as an instant low-res preview while the artwork loads.
+    var spriteURL: URL? {
+        URL(string: "\(Self.spriteBase)/\(id).png")
+    }
+
+    var shinySpriteURL: URL? {
+        URL(string: "\(Self.spriteBase)/shiny/\(id).png")
     }
 }
 
