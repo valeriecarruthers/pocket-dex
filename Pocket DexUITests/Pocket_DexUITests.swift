@@ -201,6 +201,20 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testGalleryHasSectionIndex() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        // The index bar is revealed on scroll; Johto's short label "Joh" only appears there
+        // (the section header reads "Johto").
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["Joh"].waitForExistence(timeout: 10), "Section index not shown on scroll")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

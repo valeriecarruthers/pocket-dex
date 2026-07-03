@@ -280,6 +280,9 @@ private struct PokemonListView: View {
     let loadingError: String?
     let retry: () async -> Void
 
+    @State private var indexBarVisible = false
+    @State private var hideIndexBarWork: DispatchWorkItem?
+
     private var filtersActive: Bool {
         selectedRegion != .all || selectedGame != nil
     }
@@ -333,45 +336,111 @@ private struct PokemonListView: View {
     private let gridColumns = [GridItem(.adaptive(minimum: 120), spacing: 16)]
 
     @ViewBuilder private var galleryContent: some View {
-        ScrollView {
-            if selectedRegion != .all || selectedGame != nil {
-                activeFilterChips
-                    .padding(.top, 8)
-            }
-
-            if !searchText.isEmpty {
-                HStack(spacing: 8) {
-                    evolutionLineToggle
-                    searchShinyToggle
+        ScrollViewReader { proxy in
+            ScrollView {
+                if selectedRegion != .all || selectedGame != nil {
+                    activeFilterChips
+                        .padding(.top, 8)
                 }
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
 
-            if pokemon.isEmpty {
-                emptyState
-                    .frame(maxWidth: .infinity, minHeight: 320)
-            } else if sortOption == .pokedexNumber {
-                // Sorted by number, regions are contiguous, so show sticky region headers.
-                LazyVGrid(columns: gridColumns, spacing: 16, pinnedViews: [.sectionHeaders]) {
-                    ForEach(regionSections) { section in
-                        Section {
-                            ForEach(section.pokemon) { pokemon in
-                                galleryCell(pokemon)
+                if !searchText.isEmpty {
+                    HStack(spacing: 8) {
+                        evolutionLineToggle
+                        searchShinyToggle
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                }
+
+                if pokemon.isEmpty {
+                    emptyState
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                } else if sortOption == .pokedexNumber {
+                    // Sorted by number, regions are contiguous, so show sticky region headers.
+                    LazyVGrid(columns: gridColumns, spacing: 16, pinnedViews: [.sectionHeaders]) {
+                        ForEach(regionSections) { section in
+                            Section {
+                                ForEach(section.pokemon) { pokemon in
+                                    galleryCell(pokemon)
+                                }
+                            } header: {
+                                regionHeader(section.region)
                             }
-                        } header: {
-                            regionHeader(section.region)
                         }
                     }
-                }
-                .padding()
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 16) {
-                    ForEach(pokemon) { pokemon in
-                        galleryCell(pokemon)
+                    .padding()
+                } else {
+                    LazyVGrid(columns: gridColumns, spacing: 16) {
+                        ForEach(pokemon) { pokemon in
+                            galleryCell(pokemon)
+                        }
                     }
+                    .padding()
                 }
-                .padding()
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.contentOffset.y
+            } action: { oldValue, newValue in
+                if oldValue != newValue { revealIndexBar() }
+            }
+            .overlay(alignment: .trailing) {
+                if indexEntries.count > 1 && indexBarVisible {
+                    SectionIndexBar(entries: indexEntries) { targetID in
+                        proxy.scrollTo(targetID, anchor: .top)
+                        revealIndexBar()
+                    }
+                    .padding(.trailing, 2)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+        }
+    }
+
+    // Reveals the fast-scroll index and schedules it to fade out after a short idle period.
+    private func revealIndexBar() {
+        if !indexBarVisible {
+            withAnimation(.easeIn(duration: 0.2)) { indexBarVisible = true }
+        }
+        hideIndexBarWork?.cancel()
+        let work = DispatchWorkItem {
+            withAnimation(.easeOut(duration: 0.4)) { indexBarVisible = false }
+        }
+        hideIndexBarWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    // Fast-scroll index entries, whose contents depend on the current sort/filters.
+    private var indexEntries: [GalleryIndexEntry] {
+        guard !pokemon.isEmpty else { return [] }
+
+        switch sortOption {
+        case .name:
+            // Alphabet: the first Pokemon for each starting letter.
+            var seen = Set<Character>()
+            var result: [GalleryIndexEntry] = []
+            for summary in pokemon {
+                guard let first = summary.displayName.uppercased().first, first.isLetter else { continue }
+                if seen.insert(first).inserted {
+                    result.append(GalleryIndexEntry(id: result.count, label: String(first), targetPokemonID: summary.id))
+                }
+            }
+            return result
+
+        case .pokedexNumber where selectedRegion == .all && selectedGame == nil:
+            // Regions: jump to the start of each region section.
+            return regionSections.enumerated().compactMap { index, section in
+                guard let first = section.pokemon.first else { return nil }
+                return GalleryIndexEntry(id: index, label: section.region.shortName, targetPokemonID: first.id)
+            }
+
+        case .pokedexNumber:
+            // A specific region/game is active: evenly spaced Pokedex-number markers.
+            let count = pokemon.count
+            let bucketCount = min(12, count)
+            guard bucketCount > 0 else { return [] }
+            return (0..<bucketCount).map { i in
+                let summary = pokemon[i * count / bucketCount]
+                return GalleryIndexEntry(id: i, label: "\(summary.pokedexNumber)", targetPokemonID: summary.id)
             }
         }
     }
@@ -546,6 +615,46 @@ private struct RegionSection: Identifiable {
     let region: PokemonRegion
     var pokemon: [PokemonSummary]
     var id: PokemonRegion { region }
+}
+
+private struct GalleryIndexEntry: Identifiable {
+    let id: Int
+    let label: String
+    let targetPokemonID: Int
+}
+
+
+// A Contacts-style vertical index for jumping through the gallery; drag or tap to scroll.
+private struct SectionIndexBar: View {
+    let entries: [GalleryIndexEntry]
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 1) {
+                ForEach(entries) { entry in
+                    Text(entry.label)
+                        .font(.system(size: 10, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.tint)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard !entries.isEmpty, geo.size.height > 0 else { return }
+                        let fraction = value.location.y / geo.size.height
+                        let index = min(entries.count - 1, max(0, Int(fraction * CGFloat(entries.count))))
+                        onSelect(entries[index].targetPokemonID)
+                    }
+            )
+        }
+        .frame(width: 24)
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: Capsule())
+        .padding(.vertical, 8)
+    }
 }
 
 private struct ShinyToggleButton: View {
@@ -1486,6 +1595,11 @@ private enum PokemonRegion: String, CaseIterable, Identifiable {
     var numberRangeText: String? {
         guard let range else { return nil }
         return "\(range.lowerBound)–\(range.upperBound)"
+    }
+
+    // Short label for the fast-scroll index (distinct across regions, e.g. Kanto -> "Kan").
+    var shortName: String {
+        self == .all ? "All" : String(rawValue.prefix(3)).capitalized
     }
 
     func contains(_ pokedexNumber: Int) -> Bool {
