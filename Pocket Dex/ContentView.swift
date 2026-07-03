@@ -586,6 +586,7 @@ private struct PokemonDetailView: View {
     @State private var detail: PokemonDetail?
     @State private var isLoading = false
     @State private var loadingError: String?
+    @State private var gameAppearances: [PokemonGame]?
 
     var body: some View {
         ScrollView {
@@ -606,7 +607,7 @@ private struct PokemonDetailView: View {
                 } else if let detail {
                     PokemonHeroView(detail: detail, showingShiny: $showingShiny)
                     PokemonProfileView(detail: detail)
-                    PokemonGamesView(games: detail.games)
+                    PokemonGamesView(games: gameAppearances)
                     EvolutionTreeView(nodes: detail.evolutionTree, selectPokemonID: selectPokemonID)
                     PokemonAdjacentControls(
                         previousPokemon: previousPokemon,
@@ -650,6 +651,7 @@ private struct PokemonDetailView: View {
     private func loadDetail() async {
         isLoading = true
         loadingError = nil
+        gameAppearances = nil
 
         do {
             detail = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
@@ -659,6 +661,11 @@ private struct PokemonDetailView: View {
         }
 
         isLoading = false
+
+        // Resolve which games this Pokemon appears in (heavier; fills the games section when ready).
+        if let detail {
+            gameAppearances = (try? await PokeAPIClient.shared.fetchGamesForSpecies(pokedexNames: detail.pokedexNames)) ?? []
+        }
     }
 }
 
@@ -910,25 +917,29 @@ private struct PokemonProfileView: View {
 }
 
 private struct PokemonGamesView: View {
-    let games: [String]
+    // nil while the game appearances are still loading.
+    let games: [PokemonGame]?
 
-    // Games grouped by generation, in generation order; unknown versions fall into a trailing group.
-    private var groupedGames: [(generation: PokemonGeneration?, games: [String])] {
-        let grouped = Dictionary(grouping: games) { PokemonGeneration.forVersion($0) }
-        var result: [(PokemonGeneration?, [String])] = PokemonGeneration.allCases.compactMap { generation in
+    // Games grouped by the generation whose region they cover (remakes group with the original).
+    private var groupedGames: [(generation: PokemonGeneration?, games: [PokemonGame])] {
+        let grouped = Dictionary(grouping: games ?? []) { PokemonGeneration.forVersionGroup($0.name) }
+        var result: [(PokemonGeneration?, [PokemonGame])] = PokemonGeneration.allCases.compactMap { generation in
             guard let list = grouped[generation], !list.isEmpty else { return nil }
-            return (generation, list)
+            return (generation, list.sorted { $0.id < $1.id })
         }
         if let others = grouped[nil], !others.isEmpty {
-            result.append((nil, others))
+            result.append((nil, others.sorted { $0.id < $1.id }))
         }
         return result
     }
 
     var body: some View {
         DetailSection(title: "Games") {
-            if games.isEmpty {
-                Text("No game appearance data returned by PokeAPI.")
+            if games == nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if groupedGames.isEmpty {
+                Text("No game appearances found.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -940,15 +951,23 @@ private struct PokemonGamesView: View {
         }
     }
 
-    private func generationSection(_ generation: PokemonGeneration?, games: [String]) -> some View {
+    private func generationSection(_ generation: PokemonGeneration?, games: [PokemonGame]) -> some View {
         let color = generation?.color ?? .gray
         return VStack(alignment: .leading, spacing: 8) {
-            Text(generation?.title ?? "Other")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(color)
+            HStack(spacing: 6) {
+                Text(generation?.title ?? "Other")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(color)
+                if let region = generation?.regionName {
+                    Text(region)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
 
             FlowLayout(spacing: 8) {
-                ForEach(games, id: \.self) { game in
+                ForEach(games) { game in
                     Text(game.displayName)
                         .font(.caption)
                         .fontWeight(.medium)
@@ -974,6 +993,20 @@ private enum PokemonGeneration: Int, CaseIterable, Identifiable {
         return "Generation \(numerals[rawValue - 1])"
     }
 
+    var regionName: String {
+        switch self {
+        case .i: "Kanto"
+        case .ii: "Johto"
+        case .iii: "Hoenn"
+        case .iv: "Sinnoh"
+        case .v: "Unova"
+        case .vi: "Kalos"
+        case .vii: "Alola"
+        case .viii: "Galar"
+        case .ix: "Paldea"
+        }
+    }
+
     var color: Color {
         switch self {
         case .i: Color(pokemonHex: 0xE3350D)
@@ -988,18 +1021,30 @@ private enum PokemonGeneration: Int, CaseIterable, Identifiable {
         }
     }
 
-    static func forVersion(_ version: String) -> PokemonGeneration? {
-        switch version {
-        case "red", "blue", "green", "yellow": .i
-        case "gold", "silver", "crystal": .ii
-        case "ruby", "sapphire", "emerald", "firered", "leafgreen", "colosseum", "xd": .iii
-        case "diamond", "pearl", "platinum", "heartgold", "soulsilver": .iv
-        case "black", "white", "black-2", "white-2": .v
-        case "x", "y", "omega-ruby", "alpha-sapphire": .vi
-        case "sun", "moon", "ultra-sun", "ultra-moon", "lets-go-pikachu", "lets-go-eevee": .vii
-        case "sword", "shield", "brilliant-diamond", "shining-pearl", "legends-arceus": .viii
-        case "scarlet", "violet": .ix
-        default: nil
+    // Groups games by the generation whose region they belong to, so remakes and region-linked
+    // side games (Legends) sit with the original generation rather than their release year.
+    static func forVersionGroup(_ name: String) -> PokemonGeneration? {
+        switch name {
+        case "red-blue", "yellow", "firered-leafgreen", "lets-go-pikachu-lets-go-eevee", "red-green-japan", "blue-japan":
+            return .i
+        case "gold-silver", "crystal", "heartgold-soulsilver":
+            return .ii
+        case "ruby-sapphire", "emerald", "omega-ruby-alpha-sapphire", "colosseum", "xd":
+            return .iii
+        case "diamond-pearl", "platinum", "brilliant-diamond-shining-pearl", "legends-arceus":
+            return .iv
+        case "black-white", "black-2-white-2":
+            return .v
+        case "x-y", "legends-za", "mega-dimension":
+            return .vi
+        case "sun-moon", "ultra-sun-ultra-moon":
+            return .vii
+        case "sword-shield", "the-isle-of-armor", "the-crown-tundra":
+            return .viii
+        case "scarlet-violet", "the-teal-mask", "the-indigo-disk":
+            return .ix
+        default:
+            return nil
         }
     }
 }
@@ -1201,7 +1246,34 @@ private struct PokemonGame: Identifiable, Hashable {
     let url: URL
 
     var displayName: String {
-        name.displayName
+        switch name {
+        case "red-blue": "Red & Blue"
+        case "gold-silver": "Gold & Silver"
+        case "ruby-sapphire": "Ruby & Sapphire"
+        case "firered-leafgreen": "FireRed & LeafGreen"
+        case "diamond-pearl": "Diamond & Pearl"
+        case "heartgold-soulsilver": "HeartGold & SoulSilver"
+        case "black-white": "Black & White"
+        case "black-2-white-2": "Black 2 & White 2"
+        case "x-y": "X & Y"
+        case "omega-ruby-alpha-sapphire": "Omega Ruby & Alpha Sapphire"
+        case "sun-moon": "Sun & Moon"
+        case "ultra-sun-ultra-moon": "Ultra Sun & Ultra Moon"
+        case "lets-go-pikachu-lets-go-eevee": "Let's Go Pikachu & Eevee"
+        case "sword-shield": "Sword & Shield"
+        case "brilliant-diamond-shining-pearl": "Brilliant Diamond & Shining Pearl"
+        case "legends-arceus": "Legends: Arceus"
+        case "scarlet-violet": "Scarlet & Violet"
+        case "legends-za": "Legends: Z-A"
+        case "the-isle-of-armor": "The Isle of Armor"
+        case "the-crown-tundra": "The Crown Tundra"
+        case "the-teal-mask": "The Teal Mask"
+        case "the-indigo-disk": "The Indigo Disk"
+        case "red-green-japan": "Red & Green"
+        case "blue-japan": "Blue (JP)"
+        case "mega-dimension": "Mega Dimension"
+        default: name.displayName
+        }
     }
 }
 
@@ -1211,7 +1283,7 @@ private struct PokemonDetail {
     let shinyImageURL: URL?
     let types: [String]
     let abilities: [String]
-    let games: [String]
+    let pokedexNames: [String]
     let height: Int
     let weight: Int
     let baseExperience: Int?
@@ -1386,6 +1458,34 @@ private struct PokeAPIClient {
         return ids
     }
 
+    /// The games (version groups) a species appears in — determined by intersecting the species'
+    /// regional Pokedexes with each game's Pokedexes. Covers modern and offshoot games that the
+    /// legacy game_indices field omits.
+    func fetchGamesForSpecies(pokedexNames: [String]) async throws -> [PokemonGame] {
+        let speciesDexes = Set(pokedexNames)
+        guard !speciesDexes.isEmpty else { return [] }
+
+        let games = try await fetchGames()
+
+        return await withTaskGroup(of: PokemonGame?.self) { group in
+            for game in games {
+                group.addTask {
+                    guard let versionGroup: PokeAPIVersionGroupResponse = try? await self.fetch(game.url) else {
+                        return nil
+                    }
+                    let gameDexes = Set(versionGroup.pokedexes.map(\.name))
+                    return gameDexes.isDisjoint(with: speciesDexes) ? nil : game
+                }
+            }
+
+            var result: [PokemonGame] = []
+            for await found in group where found != nil {
+                result.append(found!)
+            }
+            return result.sorted { $0.id < $1.id }
+        }
+    }
+
     /// The national dex ids of every species in the given species' evolution family.
     func fetchEvolutionFamily(forSpeciesID id: Int) async throws -> [Int] {
         let species: PokeAPISpeciesResponse = try await fetch(speciesURL(for: id))
@@ -1420,7 +1520,7 @@ private struct PokeAPIClient {
             abilities: pokemon.abilities.sorted { $0.slot < $1.slot }.map { ability in
                 ability.isHidden ? "\(ability.ability.name) hidden" : ability.ability.name
             },
-            games: pokemon.gameIndices.map(\.version.name).sorted { $0.localizedStandardCompare($1) == .orderedAscending },
+            pokedexNames: species.regionalPokedexNames,
             height: pokemon.height,
             weight: pokemon.weight,
             baseExperience: pokemon.baseExperience,
@@ -1679,6 +1779,7 @@ private struct PokeAPISpeciesResponse: Decodable {
     let genera: [PokeAPIGenus]
     let habitat: PokeAPIResource?
     let evolutionChain: PokeAPIURLReference
+    let pokedexNumbers: [PokeAPIPokedexNumber]
 
     var englishFlavorText: String? {
         flavorTextEntries
@@ -1691,12 +1792,22 @@ private struct PokeAPISpeciesResponse: Decodable {
         genera.first { $0.language.name == "en" }?.genus
     }
 
+    // Names of the regional Pokedexes this species belongs to (excluding the national dex).
+    var regionalPokedexNames: [String] {
+        pokedexNumbers.map(\.pokedex.name).filter { $0 != "national" }
+    }
+
     enum CodingKeys: String, CodingKey {
         case flavorTextEntries = "flavor_text_entries"
         case genera
         case habitat
         case evolutionChain = "evolution_chain"
+        case pokedexNumbers = "pokedex_numbers"
     }
+}
+
+private struct PokeAPIPokedexNumber: Decodable {
+    let pokedex: PokeAPIResource
 }
 
 private struct PokeAPIFlavorTextEntry: Decodable {

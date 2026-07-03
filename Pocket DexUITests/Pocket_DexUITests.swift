@@ -77,10 +77,10 @@ final class Pocket_DexUITests: XCTestCase {
         // Open the filter menu and choose a Kanto-only game (Red/Blue).
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Filter")).firstMatch.tap()
         app.buttons["Game"].firstMatch.tap()
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red Blue")).firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red & Blue")).firstMatch.tap()
 
         // An active-filter chip for the selected game should appear in the gallery.
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red Blue")).firstMatch.waitForExistence(timeout: 15),
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Red & Blue")).firstMatch.waitForExistence(timeout: 15),
                       "Active filter chip not shown")
 
         // Chikorita (Gen 2) is not in Red/Blue, so once the filter applies it must disappear.
