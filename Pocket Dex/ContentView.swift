@@ -719,6 +719,17 @@ private struct PokemonGalleryCell: View {
                 title: pokemon.displayName
             )
             .frame(height: 120)
+            .overlay(alignment: .topTrailing) {
+                if pokemon.hasAlternateForms {
+                    Image(systemName: "square.stack.3d.up.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(.tint, in: Circle())
+                        .padding(4)
+                        .accessibilityLabel("Has alternate forms")
+                }
+            }
 
             Text(pokemon.displayName)
                 .font(.callout)
@@ -1565,6 +1576,28 @@ private struct PokemonSummary: Identifiable, Hashable {
     var shinySpriteURL: URL? {
         URL(string: "\(Self.spriteBase)/shiny/\(id).png")
     }
+
+    // Whether this species has alternate forms/varieties (regional, Mega, battle forms, etc.).
+    var hasAlternateForms: Bool {
+        Self.speciesWithForms.contains(id)
+    }
+
+    // Species (by national dex number) that have more than one variety. Generated from PokeAPI.
+    private static let speciesWithForms: Set<Int> = [
+        3, 6, 9, 12, 15, 18, 19, 20, 25, 26, 27, 28, 36, 37, 38, 50, 51, 52, 53, 58, 59, 65,
+        68, 71, 74, 75, 76, 77, 78, 79, 80, 83, 88, 89, 94, 99, 100, 101, 103, 105, 110, 115,
+        121, 122, 127, 128, 130, 131, 133, 142, 143, 144, 145, 146, 149, 150, 154, 157, 160,
+        181, 194, 199, 208, 211, 212, 214, 215, 222, 227, 229, 248, 254, 257, 260, 263, 264,
+        282, 302, 303, 306, 308, 310, 319, 323, 334, 351, 354, 358, 359, 362, 373, 376, 380,
+        381, 382, 383, 384, 386, 398, 413, 428, 445, 448, 460, 475, 478, 479, 483, 484, 485,
+        487, 491, 492, 500, 503, 530, 531, 545, 549, 550, 554, 555, 560, 562, 569, 570, 571,
+        604, 609, 618, 623, 628, 641, 642, 645, 646, 647, 648, 652, 655, 658, 668, 670, 678,
+        681, 687, 689, 691, 701, 705, 706, 710, 711, 713, 718, 719, 720, 724, 735, 738, 740,
+        741, 743, 744, 745, 746, 752, 754, 758, 768, 774, 777, 778, 780, 784, 800, 801, 807,
+        809, 812, 815, 818, 823, 826, 834, 839, 841, 842, 844, 845, 849, 851, 858, 861, 869,
+        870, 875, 876, 877, 879, 884, 888, 889, 890, 892, 893, 898, 901, 902, 905, 916, 925,
+        931, 952, 964, 970, 978, 982, 998, 999, 1007, 1008, 1017, 1024
+    ]
 }
 
 /// A playable game, modelled on PokeAPI's version groups (e.g. "scarlet-violet").

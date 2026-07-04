@@ -262,6 +262,19 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testGalleryFormsBadge() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        // Venusaur (#3) has an alternate (Mega) form, so its cell should indicate that.
+        let venusaur = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Venusaur", "alternate forms")).firstMatch
+        XCTAssertTrue(venusaur.waitForExistence(timeout: 10), "Forms badge not indicated on Venusaur")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
