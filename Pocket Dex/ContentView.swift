@@ -752,6 +752,9 @@ private struct PokemonDetailView: View {
     @State private var isLoading = false
     @State private var loadingError: String?
     @State private var gameAppearances: [PokemonGame]?
+    @State private var selectedForm: PokemonForm?
+    @State private var formCache: [String: PokemonFormDetail] = [:]
+    @State private var isLoadingForm = false
 
     var body: some View {
         ScrollView {
@@ -770,8 +773,18 @@ private struct PokemonDetailView: View {
                         }
                     }
                 } else if let detail {
-                    PokemonHeroView(detail: detail, showingShiny: $showingShiny)
-                    PokemonProfileView(detail: detail)
+                    let form = activeForm(for: detail)
+                    PokemonHeroView(detail: detail, form: form, formLabel: activeFormLabel, showingShiny: $showingShiny)
+                    if detail.forms.count > 1 {
+                        PokemonFormSwitcher(
+                            forms: detail.forms,
+                            selected: selectedForm,
+                            isLoading: isLoadingForm
+                        ) { form in
+                            Task { await selectForm(form) }
+                        }
+                    }
+                    PokemonProfileView(detail: detail, form: form)
                     PokemonGamesView(games: gameAppearances)
                     EvolutionTreeView(nodes: detail.evolutionTree, selectPokemonID: selectPokemonID)
                     PokemonAdjacentControls(
@@ -813,13 +826,36 @@ private struct PokemonDetailView: View {
         }
     }
 
+    private func activeForm(for detail: PokemonDetail) -> PokemonFormDetail {
+        guard let selectedForm, !selectedForm.isDefault else { return detail.defaultForm }
+        return formCache[selectedForm.name] ?? detail.defaultForm
+    }
+
+    private var activeFormLabel: String? {
+        guard let selectedForm, !selectedForm.isDefault else { return nil }
+        return selectedForm.label
+    }
+
+    private func selectForm(_ form: PokemonForm) async {
+        selectedForm = form
+        guard !form.isDefault, formCache[form.name] == nil else { return }
+
+        isLoadingForm = true
+        defer { isLoadingForm = false }
+        if let loaded = try? await PokeAPIClient.shared.fetchFormDetail(url: form.url) {
+            formCache[form.name] = loaded
+        }
+    }
+
     private func loadDetail() async {
         isLoading = true
         loadingError = nil
         gameAppearances = nil
+        selectedForm = nil
 
         do {
             detail = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
+            selectedForm = detail?.forms.first { $0.isDefault } ?? detail?.forms.first
         } catch {
             loadingError = error.localizedDescription
             detail = nil
@@ -836,6 +872,8 @@ private struct PokemonDetailView: View {
 
 private struct PokemonHeroView: View {
     let detail: PokemonDetail
+    let form: PokemonFormDetail
+    let formLabel: String?
     @Binding var showingShiny: Bool
 
     #if os(iOS)
@@ -843,7 +881,14 @@ private struct PokemonHeroView: View {
     #endif
 
     private var activeImageURL: URL? {
-        showingShiny ? detail.shinyImageURL : detail.regularImageURL
+        showingShiny ? form.shinyImageURL : form.regularImageURL
+    }
+
+    private var displayName: String {
+        if let formLabel {
+            return "\(detail.summary.displayName) (\(formLabel))"
+        }
+        return detail.summary.displayName
     }
 
     // The iPhone (compact width) keeps the smaller artwork; iPad and Mac get a more prominent image.
@@ -860,7 +905,7 @@ private struct PokemonHeroView: View {
     }
 
     private var primaryTypeColor: Color? {
-        detail.types.first.map(Color.pokemonType)
+        form.types.first.map(Color.pokemonType)
     }
 
     var body: some View {
@@ -880,7 +925,7 @@ private struct PokemonHeroView: View {
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
 
-                    Text(detail.summary.displayName)
+                    Text(displayName)
                         .font(.largeTitle)
                         .fontWeight(.bold)
                         .lineLimit(2)
@@ -892,7 +937,7 @@ private struct PokemonHeroView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    TypeChips(types: detail.types)
+                    TypeChips(types: form.types)
                 }
             }
 
@@ -900,6 +945,47 @@ private struct PokemonHeroView: View {
                 Text(flavorText)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct PokemonFormSwitcher: View {
+    let forms: [PokemonForm]
+    let selected: PokemonForm?
+    let isLoading: Bool
+    let onSelect: (PokemonForm) -> Void
+
+    var body: some View {
+        DetailSection(title: "Forms") {
+            FlowLayout(spacing: 8) {
+                ForEach(forms) { form in
+                    let isSelected = selected == form
+                    Button {
+                        onSelect(form)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(form.label)
+                                .fontWeight(.medium)
+                            if isLoading && isSelected {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                        }
+                        .font(.callout)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            (isSelected ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.12)),
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                }
             }
         }
     }
@@ -1054,14 +1140,15 @@ private struct TypeChips: View {
 
 private struct PokemonProfileView: View {
     let detail: PokemonDetail
+    let form: PokemonFormDetail
 
     var body: some View {
         DetailSection(title: "Profile") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 StatCard(title: "Region", value: detail.summary.region.name, systemImage: "map")
-                StatCard(title: "Height", value: detail.heightText, systemImage: "ruler")
-                StatCard(title: "Weight", value: detail.weightText, systemImage: "scalemass")
-                StatCard(title: "Base XP", value: detail.baseExperienceText, systemImage: "star")
+                StatCard(title: "Height", value: form.heightText, systemImage: "ruler")
+                StatCard(title: "Weight", value: form.weightText, systemImage: "scalemass")
+                StatCard(title: "Base XP", value: form.baseExperienceText, systemImage: "star")
                 StatCard(title: "Habitat", value: detail.habitat ?? "Unknown", systemImage: "leaf")
             }
 
@@ -1069,7 +1156,7 @@ private struct PokemonProfileView: View {
                 Text("Abilities")
                     .font(.headline)
                 FlowLayout(spacing: 8) {
-                    ForEach(detail.abilities, id: \.self) { ability in
+                    ForEach(form.abilities, id: \.self) { ability in
                         AbilityChip(ability: ability)
                     }
                 }
@@ -1527,18 +1614,34 @@ private struct PokemonAbility: Hashable {
 
 private struct PokemonDetail {
     let summary: PokemonSummary
-    let regularImageURL: URL?
-    let shinyImageURL: URL?
-    let types: [String]
-    let abilities: [PokemonAbility]
     let pokedexNames: [String]
-    let height: Int
-    let weight: Int
-    let baseExperience: Int?
     let flavorText: String?
     let genus: String?
     let habitat: String?
     let evolutionTree: [EvolutionNode]
+    let forms: [PokemonForm]
+    let defaultForm: PokemonFormDetail
+}
+
+// A single form/variety (e.g. Galarian Zapdos, Lycanroc Dusk).
+private struct PokemonForm: Identifiable, Hashable {
+    let name: String
+    let url: URL
+    let isDefault: Bool
+    let label: String
+
+    var id: String { name }
+}
+
+// The form-specific data that changes when switching forms.
+private struct PokemonFormDetail {
+    let regularImageURL: URL?
+    let shinyImageURL: URL?
+    let types: [String]
+    let abilities: [PokemonAbility]
+    let height: Int
+    let weight: Int
+    let baseExperience: Int?
 
     var heightText: String {
         String(format: "%.1f m", Double(height) / 10.0)
@@ -1772,23 +1875,54 @@ private struct PokeAPIClient {
             evolutionTree = []
         }
 
+        let forms = species.varieties.map { variety in
+            PokemonForm(
+                name: variety.pokemon.name,
+                url: variety.pokemon.url,
+                isDefault: variety.isDefault,
+                label: formLabel(variety.pokemon.name, speciesName: summary.name)
+            )
+        }
+
         return PokemonDetail(
             summary: summary,
+            pokedexNames: species.regionalPokedexNames,
+            flavorText: species.englishFlavorText,
+            genus: species.englishGenus,
+            habitat: species.habitat?.name.displayName,
+            evolutionTree: evolutionTree,
+            forms: forms,
+            defaultForm: makeFormDetail(from: pokemon)
+        )
+    }
+
+    // Loads the form-specific data for an alternate variety's Pokemon resource.
+    func fetchFormDetail(url: URL) async throws -> PokemonFormDetail {
+        let pokemon: PokeAPIPokemonResponse = try await fetch(url)
+        return makeFormDetail(from: pokemon)
+    }
+
+    private func makeFormDetail(from pokemon: PokeAPIPokemonResponse) -> PokemonFormDetail {
+        PokemonFormDetail(
             regularImageURL: pokemon.sprites.bestRegularURL,
             shinyImageURL: pokemon.sprites.bestShinyURL,
             types: pokemon.types.sorted { $0.slot < $1.slot }.map(\.type.name),
             abilities: pokemon.abilities.sorted { $0.slot < $1.slot }.map { ability in
                 PokemonAbility(name: ability.ability.name, isHidden: ability.isHidden)
             },
-            pokedexNames: species.regionalPokedexNames,
             height: pokemon.height,
             weight: pokemon.weight,
-            baseExperience: pokemon.baseExperience,
-            flavorText: species.englishFlavorText,
-            genus: species.englishGenus,
-            habitat: species.habitat?.name.displayName,
-            evolutionTree: evolutionTree
+            baseExperience: pokemon.baseExperience
         )
+    }
+
+    // Human-readable form name derived by stripping the species prefix (e.g. "zapdos-galar" -> "Galar").
+    private func formLabel(_ formName: String, speciesName: String) -> String {
+        if formName == speciesName { return "Default" }
+        if formName.hasPrefix(speciesName + "-") {
+            return String(formName.dropFirst(speciesName.count + 1)).displayName
+        }
+        return formName.displayName
     }
 
     private func fetch<T: Decodable>(_ url: URL) async throws -> T {
@@ -2040,6 +2174,7 @@ private struct PokeAPISpeciesResponse: Decodable {
     let habitat: PokeAPIResource?
     let evolutionChain: PokeAPIURLReference
     let pokedexNumbers: [PokeAPIPokedexNumber]
+    let varieties: [PokeAPIVariety]
 
     var englishFlavorText: String? {
         flavorTextEntries
@@ -2063,11 +2198,22 @@ private struct PokeAPISpeciesResponse: Decodable {
         case habitat
         case evolutionChain = "evolution_chain"
         case pokedexNumbers = "pokedex_numbers"
+        case varieties
     }
 }
 
 private struct PokeAPIPokedexNumber: Decodable {
     let pokedex: PokeAPIResource
+}
+
+private struct PokeAPIVariety: Decodable {
+    let isDefault: Bool
+    let pokemon: PokeAPIResource
+
+    enum CodingKeys: String, CodingKey {
+        case isDefault = "is_default"
+        case pokemon
+    }
 }
 
 private struct PokeAPIFlavorTextEntry: Decodable {

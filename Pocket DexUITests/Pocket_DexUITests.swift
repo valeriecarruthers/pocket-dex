@@ -237,6 +237,31 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testFormSwitcher() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 30), "Search field missing")
+        search.tap()
+        search.typeText("Deoxys")
+
+        let deoxys = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Deoxys")).firstMatch
+        XCTAssertTrue(deoxys.waitForExistence(timeout: 20), "Deoxys not found")
+        deoxys.tap()
+
+        XCTAssertTrue(app.staticTexts["Profile"].waitForExistence(timeout: 30), "Detail never loaded")
+
+        // Deoxys has multiple forms; switch to the Attack form.
+        let attack = app.buttons["Attack"]
+        XCTAssertTrue(attack.waitForExistence(timeout: 15), "Form switcher missing")
+        attack.tap()
+
+        // The hero title should now reflect the selected form.
+        XCTAssertTrue(app.staticTexts["Deoxys (Attack)"].waitForExistence(timeout: 15), "Form not applied")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
