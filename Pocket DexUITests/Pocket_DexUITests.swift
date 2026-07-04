@@ -297,6 +297,30 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testTabBarShowsTopLevelTabs() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Both top-level tabs should be present in the tab bar at launch.
+        XCTAssertTrue(app.buttons["Pokédex"].waitForExistence(timeout: 15), "Pokédex tab missing")
+        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 15), "Settings tab missing")
+    }
+
+    @MainActor
+    func testSettingsTabOpensAboutSection() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let settingsTab = app.buttons["Settings"]
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 15), "Settings tab missing")
+        settingsTab.tap()
+
+        // Selecting the tab should surface the Settings screen and its About/Version row.
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings screen did not appear")
+        XCTAssertTrue(app.staticTexts["Version"].waitForExistence(timeout: 10), "About/Version row not shown")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
