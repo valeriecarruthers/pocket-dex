@@ -215,6 +215,28 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testScrollToTopButton() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        // Scroll down far enough to reveal the scroll-to-top button.
+        app.swipeUp()
+        app.swipeUp()
+        app.swipeUp()
+
+        let topButton = app.buttons["Scroll to top"]
+        XCTAssertTrue(topButton.waitForExistence(timeout: 10), "Scroll-to-top button not shown")
+        topButton.tap()
+
+        // Back at the top: the first Pokemon should be visible again.
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 10),
+                      "Did not scroll back to top")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

@@ -282,6 +282,7 @@ private struct PokemonListView: View {
 
     @State private var indexBarVisible = false
     @State private var hideIndexBarWork: DispatchWorkItem?
+    @State private var scrolledDown = false
 
     private var filtersActive: Bool {
         selectedRegion != .all || selectedGame != nil
@@ -338,6 +339,10 @@ private struct PokemonListView: View {
     @ViewBuilder private var galleryContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                Color.clear
+                    .frame(height: 0)
+                    .id("galleryTop")
+
                 if selectedRegion != .all || selectedGame != nil {
                     activeFilterChips
                         .padding(.top, 8)
@@ -382,6 +387,10 @@ private struct PokemonListView: View {
                 geometry.contentOffset.y
             } action: { oldValue, newValue in
                 if oldValue != newValue { revealIndexBar() }
+                let isDown = newValue > 500
+                if isDown != scrolledDown {
+                    withAnimation(.easeInOut(duration: 0.2)) { scrolledDown = isDown }
+                }
             }
             .overlay(alignment: .trailing) {
                 if indexEntries.count > 1 && indexBarVisible {
@@ -390,7 +399,25 @@ private struct PokemonListView: View {
                         revealIndexBar()
                     }
                     .padding(.trailing, 2)
+                    .padding(.bottom, 64)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if scrolledDown {
+                    Button {
+                        withAnimation { proxy.scrollTo("galleryTop", anchor: .top) }
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.headline)
+                            .padding(14)
+                            .background(.thinMaterial, in: Circle())
+                            .overlay(Circle().strokeBorder(.tint.opacity(0.3), lineWidth: 1))
+                    }
+                    .accessibilityLabel("Scroll to top")
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 16)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
         }
@@ -636,6 +663,8 @@ private struct SectionIndexBar: View {
                     Text(entry.label)
                         .font(.system(size: 10, weight: .bold).monospacedDigit())
                         .foregroundStyle(.tint)
+                        .fixedSize()
+                        .rotationEffect(.degrees(90))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -650,7 +679,7 @@ private struct SectionIndexBar: View {
                     }
             )
         }
-        .frame(width: 24)
+        .frame(width: 18)
         .padding(.vertical, 6)
         .background(.thinMaterial, in: Capsule())
         .padding(.vertical, 8)
