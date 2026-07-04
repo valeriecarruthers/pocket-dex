@@ -394,7 +394,7 @@ private struct PokemonListView: View {
             }
             .overlay(alignment: .trailing) {
                 if indexEntries.count > 1 && indexBarVisible {
-                    SectionIndexBar(entries: indexEntries) { targetID in
+                    SectionIndexBar(entries: indexEntries, verticalLabels: indexLabelsAreVertical) { targetID in
                         proxy.scrollTo(targetID, anchor: .top)
                         revealIndexBar()
                     }
@@ -434,6 +434,11 @@ private struct PokemonListView: View {
         }
         hideIndexBarWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    // Only the region labels are rotated vertical; alphabet letters and numbers stay horizontal.
+    private var indexLabelsAreVertical: Bool {
+        sortOption == .pokedexNumber && selectedRegion == .all && selectedGame == nil
     }
 
     // Fast-scroll index entries, whose contents depend on the current sort/filters.
@@ -654,6 +659,7 @@ private struct GalleryIndexEntry: Identifiable {
 // A Contacts-style vertical index for jumping through the gallery; drag or tap to scroll.
 private struct SectionIndexBar: View {
     let entries: [GalleryIndexEntry]
+    let verticalLabels: Bool
     let onSelect: (Int) -> Void
 
     var body: some View {
@@ -664,7 +670,7 @@ private struct SectionIndexBar: View {
                         .font(.system(size: 10, weight: .bold).monospacedDigit())
                         .foregroundStyle(.tint)
                         .fixedSize()
-                        .rotationEffect(.degrees(90))
+                        .rotationEffect(.degrees(verticalLabels ? 90 : 0))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -679,7 +685,7 @@ private struct SectionIndexBar: View {
                     }
             )
         }
-        .frame(width: 18)
+        .frame(width: verticalLabels ? 18 : 30)
         .padding(.vertical, 6)
         .background(.thinMaterial, in: Capsule())
         .padding(.vertical, 8)
