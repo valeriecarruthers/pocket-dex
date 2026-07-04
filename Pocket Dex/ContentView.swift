@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
+    @State private var selectedFormFilter: PokemonFormFilter = .all
     @State private var games: [PokemonGame] = []
     @State private var selectedGame: PokemonGame?
     @State private var gameSpeciesIDs: Set<Int>?
@@ -54,6 +55,7 @@ struct ContentView: View {
                 searchText: $searchText,
                 sortOption: $sortOption,
                 selectedRegion: $selectedRegion,
+                selectedFormFilter: $selectedFormFilter,
                 games: games,
                 selectedGame: $selectedGame,
                 includeEvolutionLines: $includeEvolutionLines,
@@ -146,7 +148,10 @@ struct ContentView: View {
         } else {
             gameFiltered = pokemon
         }
-        return gameFiltered.filter { selectedRegion.contains($0.pokedexNumber) }
+        let regionFiltered = gameFiltered.filter { selectedRegion.contains($0.pokedexNumber) }
+
+        guard selectedFormFilter != .all else { return regionFiltered }
+        return regionFiltered.filter { selectedFormFilter.matches($0) }
     }
 
     private func matchesSearch(_ pokemon: PokemonSummary, _ searched: String) -> Bool {
@@ -272,6 +277,7 @@ private struct PokemonListView: View {
     @Binding var searchText: String
     @Binding var sortOption: PokemonSortOption
     @Binding var selectedRegion: PokemonRegion
+    @Binding var selectedFormFilter: PokemonFormFilter
     let games: [PokemonGame]
     @Binding var selectedGame: PokemonGame?
     @Binding var includeEvolutionLines: Bool
@@ -285,7 +291,7 @@ private struct PokemonListView: View {
     @State private var scrolledDown = false
 
     private var filtersActive: Bool {
-        selectedRegion != .all || selectedGame != nil
+        selectedRegion != .all || selectedGame != nil || selectedFormFilter != .all
     }
 
     var body: some View {
@@ -306,6 +312,13 @@ private struct PokemonListView: View {
                         Text("All Games").tag(PokemonGame?.none)
                         ForEach(games) { game in
                             Text(game.displayName).tag(PokemonGame?.some(game))
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker("Form", selection: $selectedFormFilter) {
+                        ForEach(PokemonFormFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
                         }
                     }
                     .pickerStyle(.menu)
@@ -343,7 +356,7 @@ private struct PokemonListView: View {
                     .frame(height: 0)
                     .id("galleryTop")
 
-                if selectedRegion != .all || selectedGame != nil {
+                if selectedRegion != .all || selectedGame != nil || selectedFormFilter != .all {
                     activeFilterChips
                         .padding(.top, 8)
                 }
@@ -550,6 +563,11 @@ private struct PokemonListView: View {
                 if let game = selectedGame {
                     FilterChip(title: game.displayName, systemImage: "gamecontroller") {
                         selectedGame = nil
+                    }
+                }
+                if selectedFormFilter != .all {
+                    FilterChip(title: selectedFormFilter.title, systemImage: "sparkles") {
+                        selectedFormFilter = .all
                     }
                 }
             }
@@ -1582,6 +1600,24 @@ private struct PokemonSummary: Identifiable, Hashable {
         Self.speciesWithForms.contains(id)
     }
 
+    var hasMegaForm: Bool { Self.megaSpecies.contains(id) }
+    var hasGigantamaxForm: Bool { Self.gigantamaxSpecies.contains(id) }
+
+    // Species (by national dex number) with a Mega Evolution. Generated from PokeAPI.
+    private static let megaSpecies: Set<Int> = [
+        3, 6, 9, 15, 18, 26, 36, 65, 71, 80, 94, 115, 121, 127, 130, 142, 149, 150, 154, 160,
+        181, 208, 212, 214, 227, 229, 248, 254, 257, 260, 282, 302, 303, 306, 308, 310, 319,
+        323, 334, 354, 358, 359, 362, 373, 376, 380, 381, 384, 398, 428, 445, 448, 460, 475,
+        478, 485, 491, 500, 530, 531, 545, 560, 604, 609, 623, 652, 655, 658, 668, 670, 678,
+        687, 689, 691, 701, 718, 719, 740, 768, 780, 801, 807, 870, 952, 970, 978, 998
+    ]
+
+    // Species (by national dex number) with a Gigantamax form. Generated from PokeAPI.
+    private static let gigantamaxSpecies: Set<Int> = [
+        3, 6, 9, 12, 25, 52, 68, 94, 99, 131, 133, 143, 569, 809, 812, 815, 818, 823, 826,
+        834, 839, 841, 842, 844, 849, 851, 858, 861, 869, 879, 884, 892
+    ]
+
     // Species (by national dex number) that have more than one variety. Generated from PokeAPI.
     private static let speciesWithForms: Set<Int> = [
         3, 6, 9, 12, 15, 18, 19, 20, 25, 26, 27, 28, 36, 37, 38, 50, 51, 52, 53, 58, 59, 65,
@@ -1703,6 +1739,30 @@ private struct EvolutionNode: Identifiable, Hashable {
 
     var spriteURL: URL? {
         URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/\(id).png")
+    }
+}
+
+private enum PokemonFormFilter: String, CaseIterable, Identifiable {
+    case all
+    case mega
+    case gigantamax
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .all: "All Forms"
+        case .mega: "Mega Evolution"
+        case .gigantamax: "Gigantamax"
+        }
+    }
+
+    func matches(_ pokemon: PokemonSummary) -> Bool {
+        switch self {
+        case .all: true
+        case .mega: pokemon.hasMegaForm
+        case .gigantamax: pokemon.hasGigantamaxForm
+        }
     }
 }
 

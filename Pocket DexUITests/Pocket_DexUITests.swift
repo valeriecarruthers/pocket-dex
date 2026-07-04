@@ -275,6 +275,28 @@ final class Pocket_DexUITests: XCTestCase {
     }
 
     @MainActor
+    func testMegaFormFilter() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Bulbasaur")).firstMatch.waitForExistence(timeout: 30),
+                      "Gallery never appeared")
+
+        // Filter to Mega Evolutions.
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Filter")).firstMatch.tap()
+        app.buttons["Form"].firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Mega Evolution")).firstMatch.tap()
+
+        // Ivysaur (#2) has no Mega, so it must be excluded even when searched.
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("Ivysaur")
+        let ivysaur = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Ivysaur")).firstMatch
+        XCTAssertTrue(ivysaur.waitForNonExistence(timeout: 15), "Ivysaur should be filtered out for Mega")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
