@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__xcode-tools__XcodeRead",
+      "mcp__xcode-tools__BuildProject",
+      "mcp__xcode-tools__RunSomeTests",
+      "mcp__xcode-tools__RunAllTests",
+      "Bash(xcrun simctl list *)",
+      "Bash(xcrun simctl listapps *)",
+      "Bash(xcrun simctl install *)",
+      "Bash(xcrun simctl launch *)",
+      "Bash(xcrun simctl terminate *)",
+      "Bash(xcrun simctl boot *)",
+      "Bash(xcrun simctl bootstatus *)",
+      "Bash(xcrun simctl io *)"
+    ]
+  }
+}

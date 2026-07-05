@@ -2,8 +2,8 @@
 //  RootView.swift
 //  Pocket Dex
 //
-//  The app's top-level shell: a bottom tab bar hosting each top-level feature. Only the
-//  Pokedex and Settings tabs exist today; Type Chart and Cards will join as they land.
+//  The app's top-level shell: a bottom tab bar hosting each top-level feature. The Pokedex,
+//  Type Chart, and Settings tabs exist today; Cards will join as it lands.
 //
 
 import SwiftUI
@@ -15,6 +15,7 @@ struct RootView: View {
     // Named AppTab to avoid shadowing SwiftUI's own `Tab` type used below.
     enum AppTab: Hashable {
         case pokedex
+        case typeChart
         case settings
     }
 
@@ -24,6 +25,10 @@ struct RootView: View {
         TabView(selection: $selectedTab) {
             Tab("Pokédex", systemImage: "square.grid.2x2", value: AppTab.pokedex) {
                 PokedexView()
+            }
+
+            Tab("Type Chart", systemImage: "tablecells", value: AppTab.typeChart) {
+                TypeChartView()
             }
 
             Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {

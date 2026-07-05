@@ -14,12 +14,7 @@ struct TypeChips: View {
         FlowLayout(spacing: 8) {
             ForEach(types, id: \.self) { type in
                 Text(type.displayName)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.pokemonType(type), in: Capsule())
+                    .typeCapsule(Color.pokemonType(type))
             }
         }
     }
