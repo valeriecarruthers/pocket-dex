@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct PokemonDetailView: View {
     let pokemon: PokemonSummary
     let previousPokemon: PokemonSummary?
     let nextPokemon: PokemonSummary?
+    let games: [PokemonGame]
     @Binding var showingShiny: Bool
     let selectPokemon: (PokemonSummary) -> Void
     let selectPokemonID: (Int) -> Void
@@ -22,6 +24,8 @@ struct PokemonDetailView: View {
     @State private var selectedForm: PokemonForm?
     @State private var formCache: [String: PokemonFormDetail] = [:]
     @State private var isLoadingForm = false
+
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         ScrollView {
@@ -115,25 +119,59 @@ struct PokemonDetailView: View {
     }
 
     private func loadDetail() async {
-        isLoading = true
         loadingError = nil
         gameAppearances = nil
         selectedForm = nil
 
+        // Store first: a persisted record renders instantly and works fully offline.
+        if let record = cachedDetailRecord() {
+            let cached = PokemonDetail(record, summary: pokemon)
+            detail = cached
+            selectedForm = cached.forms.first { $0.isDefault } ?? cached.forms.first
+            await resolveGameAppearances(for: cached, cachedIDs: record.gameAppearanceIDs)
+            return
+        }
+
+        // Cache miss: fetch from the network, show it, and persist it forever.
+        isLoading = true
+        defer { isLoading = false }
         do {
-            detail = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
-            selectedForm = detail?.forms.first { $0.isDefault } ?? detail?.forms.first
+            let fetched = try await PokeAPIClient.shared.fetchPokemonDetail(for: pokemon)
+            detail = fetched
+            selectedForm = fetched.forms.first { $0.isDefault } ?? fetched.forms.first
+            let store = PokedexStore(modelContainer: modelContext.container)
+            try? await store.saveDetail(fetched, gameAppearanceIDs: nil)
+            await resolveGameAppearances(for: fetched, cachedIDs: nil)
         } catch {
             loadingError = error.localizedDescription
             detail = nil
         }
+    }
 
-        isLoading = false
+    // Reads any persisted detail for this Pokemon from the main context.
+    private func cachedDetailRecord() -> PokemonDetailRecord? {
+        let id = pokemon.id
+        let descriptor = FetchDescriptor<PokemonDetailRecord>(predicate: #Predicate { $0.id == id })
+        return try? modelContext.fetch(descriptor).first
+    }
 
-        // Resolve which games this Pokemon appears in (heavier; fills the games section when ready).
-        if let detail {
-            gameAppearances = (try? await PokeAPIClient.shared.fetchGamesForSpecies(pokedexNames: detail.pokedexNames)) ?? []
+    // Fills the games section. Uses cached appearance ids when present (offline, and skips the
+    // app's heaviest call — fetchGamesForSpecies); otherwise resolves them over the network and
+    // backfills the store so the next visit is instant.
+    private func resolveGameAppearances(for detail: PokemonDetail, cachedIDs: [Int]?) async {
+        if let cachedIDs {
+            let byID = Dictionary(games.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            gameAppearances = cachedIDs.compactMap { byID[$0] }.sorted { $0.id < $1.id }
+            return
         }
+
+        guard let resolved = try? await PokeAPIClient.shared.fetchGamesForSpecies(pokedexNames: detail.pokedexNames) else {
+            gameAppearances = []
+            return
+        }
+        gameAppearances = resolved
+        let store = PokedexStore(modelContainer: modelContext.container)
+        try? await store.saveDetail(detail, gameAppearanceIDs: resolved.map(\.id))
     }
 }
 

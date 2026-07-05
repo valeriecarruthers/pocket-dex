@@ -52,7 +52,7 @@ enum PokemonSortOption: String, CaseIterable, Identifiable {
     }
 }
 
-enum PokemonRegion: String, CaseIterable, Identifiable {
+nonisolated enum PokemonRegion: String, CaseIterable, Identifiable {
     case all
     case kanto
     case johto

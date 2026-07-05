@@ -7,8 +7,11 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+
     // Appearance is persisted in UserDefaults via @AppStorage and read back by RootView,
     // which applies it app-wide. The binding below drives the picker directly.
     @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
@@ -81,7 +84,7 @@ struct SettingsView: View {
     private func refreshCacheSize() async {
         let imageBytes = PokemonImageCache.shared.diskUsageBytes
         let jsonBytes = (try? await PokeAPIDiskCache.shared.sizeBytes()) ?? 0
-        cacheSize = imageBytes + jsonBytes
+        cacheSize = imageBytes + jsonBytes + referenceStoreBytes()
     }
 
     private func clearCache() {
@@ -89,8 +92,25 @@ struct SettingsView: View {
         Task {
             PokemonImageCache.shared.clear()
             try? await PokeAPIDiskCache.shared.clear()
+
+            // Also empty the SwiftData reference store and reset the refresh clock, so the
+            // gallery repopulates from scratch on its next appearance.
+            let store = PokedexStore(modelContainer: modelContext.container)
+            try? await store.clear()
+            UserDefaults.standard.removeObject(forKey: PokedexRefresh.lastListRefreshKey)
+
             await refreshCacheSize()
             isClearing = false
+        }
+    }
+
+    // On-disk size of the SwiftData reference store (the .store file plus its -wal/-shm sidecars).
+    private func referenceStoreBytes() -> Int {
+        guard let url = modelContext.container.configurations.first?.url else { return 0 }
+        let fileManager = FileManager.default
+        return [url.path, url.path + "-wal", url.path + "-shm"].reduce(0) { total, path in
+            let size = (try? fileManager.attributesOfItem(atPath: path)[.size]) as? Int ?? 0
+            return total + size
         }
     }
 

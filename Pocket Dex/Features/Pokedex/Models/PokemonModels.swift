@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct PokemonSummary: Identifiable, Hashable {
+nonisolated struct PokemonSummary: Identifiable, Hashable, Sendable {
     let id: Int
     let name: String
     let url: URL
@@ -88,7 +88,7 @@ struct PokemonSummary: Identifiable, Hashable {
 }
 
 /// A playable game, modelled on PokeAPI's version groups (e.g. "scarlet-violet").
-struct PokemonGame: Identifiable, Hashable {
+nonisolated struct PokemonGame: Identifiable, Hashable, Sendable {
     let id: Int
     let name: String
     let url: URL
@@ -125,14 +125,14 @@ struct PokemonGame: Identifiable, Hashable {
     }
 }
 
-struct PokemonAbility: Hashable {
+nonisolated struct PokemonAbility: Hashable, Codable, Sendable {
     let name: String
     let isHidden: Bool
 
     var displayName: String { name.displayName }
 }
 
-struct PokemonDetail {
+nonisolated struct PokemonDetail: Sendable {
     let summary: PokemonSummary
     let pokedexNames: [String]
     let flavorText: String?
@@ -144,7 +144,7 @@ struct PokemonDetail {
 }
 
 // A single form/variety (e.g. Galarian Zapdos, Lycanroc Dusk).
-struct PokemonForm: Identifiable, Hashable {
+nonisolated struct PokemonForm: Identifiable, Hashable, Codable, Sendable {
     let name: String
     let url: URL
     let isDefault: Bool
@@ -154,7 +154,7 @@ struct PokemonForm: Identifiable, Hashable {
 }
 
 // The form-specific data that changes when switching forms.
-struct PokemonFormDetail {
+nonisolated struct PokemonFormDetail: Codable, Sendable {
     let regularImageURL: URL?
     let shinyImageURL: URL?
     let types: [String]
@@ -176,7 +176,7 @@ struct PokemonFormDetail {
     }
 }
 
-struct EvolutionNode: Identifiable, Hashable {
+nonisolated struct EvolutionNode: Identifiable, Hashable, Codable, Sendable {
     let id: Int
     let name: String
     let requirement: String?

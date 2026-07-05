@@ -48,5 +48,5 @@ struct RootView: View {
 
 #Preview {
     RootView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: [SpeciesRecord.self, GameRecord.self, PokemonDetailRecord.self], inMemory: true)
 }

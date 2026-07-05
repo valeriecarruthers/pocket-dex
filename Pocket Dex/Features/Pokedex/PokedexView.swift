@@ -10,13 +10,15 @@ import SwiftUI
 import SwiftData
 
 struct PokedexView: View {
-    @State private var pokemon: [PokemonSummary] = []
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SpeciesRecord.id) private var speciesRecords: [SpeciesRecord]
+    @Query(sort: \GameRecord.id) private var gameRecords: [GameRecord]
+
     @State private var selectedPokemonID: PokemonSummary.ID?
     @State private var searchText = ""
     @State private var sortOption: PokemonSortOption = .pokedexNumber
     @State private var selectedRegion: PokemonRegion = .all
     @State private var selectedFormFilter: PokemonFormFilter = .all
-    @State private var games: [PokemonGame] = []
     @State private var selectedGame: PokemonGame?
     @State private var gameSpeciesIDs: Set<Int>?
     @State private var gameFilterCache: [Int: Set<Int>] = [:]
@@ -28,6 +30,9 @@ struct PokedexView: View {
     @State private var showingShiny = false
     @State private var isLoading = false
     @State private var loadingError: String?
+
+    // Timestamp of the last successful list refresh, for the 30-day TTL. 0 = never.
+    @AppStorage(PokedexRefresh.lastListRefreshKey) private var lastListRefreshRaw: Double = 0
 
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -41,6 +46,16 @@ struct PokedexView: View {
         #else
         true
         #endif
+    }
+
+    // The gallery + game filter are driven by the SwiftData store; map records to the value-type
+    // view models the rest of the pipeline already uses.
+    private var pokemon: [PokemonSummary] {
+        speciesRecords.map(PokemonSummary.init)
+    }
+
+    private var games: [PokemonGame] {
+        gameRecords.map(PokemonGame.init)
     }
 
     var body: some View {
@@ -58,7 +73,7 @@ struct PokedexView: View {
                 showingShiny: $showingShiny,
                 isLoading: isLoading || isLoadingGameFilter || isLoadingEvolutions,
                 loadingError: loadingError,
-                retry: loadPokemon
+                retry: { await refresh(force: true) }
             )
 #if os(macOS)
             .navigationSplitViewColumnWidth(min: 280, ideal: 340)
@@ -80,7 +95,14 @@ struct PokedexView: View {
             }
         }
         .task {
-            await loadPokemonIfNeeded()
+            await refresh(force: false)
+        }
+        .onChange(of: filteredPokemon.first?.id, initial: true) { _, first in
+            // With the store, data can be present instantly on launch — pre-select the first
+            // Pokemon (iPad/Mac) as soon as it's available, without clobbering an existing pick.
+            if selectedPokemonID == nil, autoSelectsFirstPokemon, let first {
+                selectedPokemonID = first
+            }
         }
         .task(id: selectedGame) {
             await applyGameFilter()
@@ -96,6 +118,7 @@ struct PokedexView: View {
             pokemon: pokemon,
             previousPokemon: adjacentPokemon.previous,
             nextPokemon: adjacentPokemon.next,
+            games: games,
             showingShiny: $showingShiny,
             selectPokemon: { selectedPokemonID = $0.id },
             selectPokemonID: { selectedPokemonID = $0 }
@@ -188,29 +211,39 @@ struct PokedexView: View {
         return directSearchMatches.map(\.id)
     }
 
-    private func loadPokemonIfNeeded() async {
-        guard pokemon.isEmpty else { return }
-        await loadPokemon()
-    }
+    // Refreshes the reference store from PokeAPI. Only fetches when the store is empty or the
+    // cached list has aged past its TTL (or when forced by pull-to-refresh), since the data is
+    // essentially static. The gallery is driven by @Query, so the store writes flow to the UI.
+    private func refresh(force: Bool) async {
+        let storeIsEmpty = speciesRecords.isEmpty
+        let lastRefresh = lastListRefreshRaw == 0
+            ? nil
+            : Date(timeIntervalSinceReferenceDate: lastListRefreshRaw)
+        guard force || PokedexRefresh.shouldRefreshList(isEmpty: storeIsEmpty, lastRefresh: lastRefresh) else {
+            return
+        }
 
-    private func loadPokemon() async {
-        isLoading = true
+        if storeIsEmpty { isLoading = true }
         loadingError = nil
+        defer { isLoading = false }
 
         do {
-            pokemon = try await PokeAPIClient.shared.fetchAllPokemon()
-            if selectedPokemonID == nil, autoSelectsFirstPokemon {
-                selectedPokemonID = filteredPokemon.first?.id
+            let summaries = try await PokeAPIClient.shared.fetchAllPokemon()
+            let fetchedGames = (try? await PokeAPIClient.shared.fetchGames()) ?? []
+
+            // Writes go through the background actor; @Query pushes the results back to the view.
+            let store = PokedexStore(modelContainer: modelContext.container)
+            try await store.sync(species: summaries)
+            if !fetchedGames.isEmpty {
+                try await store.sync(games: fetchedGames)
             }
+            lastListRefreshRaw = Date.now.timeIntervalSinceReferenceDate
         } catch {
-            loadingError = error.localizedDescription
+            // Only surface an error when there's nothing to show; otherwise the cached list stands.
+            if storeIsEmpty {
+                loadingError = error.localizedDescription
+            }
         }
-
-        if games.isEmpty {
-            games = (try? await PokeAPIClient.shared.fetchGames()) ?? []
-        }
-
-        isLoading = false
     }
 
     // Resolves which species appear in the selected game (cached per game) and updates the filter.
@@ -269,5 +302,5 @@ struct PokedexView: View {
 
 #Preview {
     PokedexView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: [SpeciesRecord.self, GameRecord.self, PokemonDetailRecord.self], inMemory: true)
 }

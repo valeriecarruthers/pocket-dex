@@ -11,15 +11,24 @@ import SwiftData
 @main
 struct Pocket_DexApp: App {
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        // The Pokedex "reference" store: public, re-fetchable data, so it's local-only (no iCloud).
+        // The volatile TCG "market" store will join later as a second configuration
+        // (CloudKit-synced for collections/wishlists) — hence the configurations array.
+        let schema = Schema([SpeciesRecord.self, GameRecord.self, PokemonDetailRecord.self])
+        let reference = ModelConfiguration("Reference", schema: schema, cloudKitDatabase: .none)
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(for: schema, configurations: [reference])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // A schema change (e.g. the old template Item model → these records) can leave an
+            // existing store unopenable. Rather than crash the app, wipe it and rebuild — safe
+            // because everything here is re-fetchable reference data.
+            try? FileManager.default.removeItem(at: reference.url)
+            do {
+                return try ModelContainer(for: schema, configurations: [reference])
+            } catch {
+                fatalError("Could not create ModelContainer even after resetting the store: \(error)")
+            }
         }
     }()
 

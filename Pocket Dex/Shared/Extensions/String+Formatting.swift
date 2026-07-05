@@ -7,7 +7,7 @@ import Foundation
 
 extension String {
     /// Turns a hyphenated API identifier (e.g. "zapdos-galar") into a display name ("Zapdos Galar").
-    var displayName: String {
+    nonisolated var displayName: String {
         split(separator: "-")
             .map { $0.capitalized }
             .joined(separator: " ")
