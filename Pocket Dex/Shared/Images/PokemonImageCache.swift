@@ -31,17 +31,32 @@ final class PokemonImageCache {
 
     private let memory = NSCache<NSURL, PlatformImage>()
     private let session: URLSession
+    // Held as a property so Settings can report its disk usage and clear it. It's the same
+    // URLCache handed to the session's configuration below.
+    private let urlCache: URLCache
 
     private init() {
         memory.countLimit = 600
-        let configuration = URLSessionConfiguration.default
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
-        configuration.urlCache = URLCache(
+        urlCache = URLCache(
             memoryCapacity: 40 * 1024 * 1024,
             diskCapacity: 400 * 1024 * 1024,
             diskPath: "PokeAPIImages"
         )
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.urlCache = urlCache
         session = URLSession(configuration: configuration)
+    }
+
+    /// Current on-disk size of downloaded images, in bytes, for display in Settings.
+    var diskUsageBytes: Int {
+        urlCache.currentDiskUsage
+    }
+
+    /// Empties both the in-memory and on-disk image caches. Images re-download on next view.
+    func clear() {
+        memory.removeAllObjects()
+        urlCache.removeAllCachedResponses()
     }
 
     func cachedImage(for url: URL) -> PlatformImage? {

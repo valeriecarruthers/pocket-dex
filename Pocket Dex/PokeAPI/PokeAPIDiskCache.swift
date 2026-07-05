@@ -32,6 +32,26 @@ actor PokeAPIDiskCache {
         try data.write(to: fileURL(for: url), options: .atomic)
     }
 
+    /// Total size of all cached JSON responses, in bytes, for display in Settings.
+    /// Returns 0 if the cache directory doesn't exist yet.
+    func sizeBytes() throws -> Int {
+        guard fileManager.fileExists(atPath: directory.path) else { return 0 }
+        let contents = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey]
+        )
+        return try contents.reduce(0) { total, fileURL in
+            let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            return total + size
+        }
+    }
+
+    /// Removes all cached JSON responses. The directory is recreated lazily on the next save.
+    func clear() throws {
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try fileManager.removeItem(at: directory)
+    }
+
     private func prepareDirectory() throws {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
     }

@@ -21,6 +21,13 @@ struct RootView: View {
 
     @State private var selectedTab: AppTab = .pokedex
 
+    // The user's appearance choice, persisted in Settings. Stored as a raw string in
+    // UserDefaults; we map it back to the enum to drive `.preferredColorScheme` below.
+    @AppStorage(AppAppearance.storageKey) private var appearanceRaw = AppAppearance.system.rawValue
+    private var appearance: AppAppearance {
+        AppAppearance(rawValue: appearanceRaw) ?? .system
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("Pokédex", systemImage: "square.grid.2x2", value: AppTab.pokedex) {
@@ -35,6 +42,7 @@ struct RootView: View {
                 SettingsView()
             }
         }
+        .preferredColorScheme(appearance.colorScheme)
     }
 }
 
