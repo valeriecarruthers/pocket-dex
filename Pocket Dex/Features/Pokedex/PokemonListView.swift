@@ -30,10 +30,22 @@ struct PokemonListView: View {
         selectedRegion != .all || selectedGame != nil || selectedFormFilter != .all
     }
 
+    // The gallery is a ScrollView (not a List), so with the default placement iOS tucks the search
+    // bar into a collapsible drawer that starts scrolled off-screen — leaving it unreachable (and
+    // invisible to UI tests) until the user scrolls. Pinning it always-visible keeps search a tap
+    // away. macOS has no navigation-bar drawer, so it falls back to automatic placement there.
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(iOS)
+        .navigationBarDrawer(displayMode: .always)
+        #else
+        .automatic
+        #endif
+    }
+
     var body: some View {
         galleryContent
         .navigationTitle("Pocket Dex")
-        .searchable(text: $searchText, prompt: "Name or number")
+        .searchable(text: $searchText, placement: searchPlacement, prompt: "Name or number")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Menu {
