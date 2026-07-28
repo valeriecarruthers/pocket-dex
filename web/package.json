@@ -1,0 +1,32 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "node --test --experimental-strip-types \"tests/*.test.mjs\"",
+    "data:build": "node scripts/build-dataset.mjs",
+    "data:check": "node scripts/build-dataset.mjs --check",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "dependencies": {
+    "next": "16.2.12",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "playwright": "^1.62.0",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

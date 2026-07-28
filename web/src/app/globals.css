@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/* Theme is toggled by a class on <html>, mirroring the iOS app's appearance setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f3f4f7;
+  --surface: #ffffff;
+  --surface-muted: #eaecf1;
+  --foreground: #14161a;
+  --muted: #5b6270;
+  --border: #dee1e8;
+  --accent: #d6303c;
+}
+
+.dark {
+  --background: #0b0c0f;
+  --surface: #15171c;
+  --surface-muted: #1d2026;
+  --foreground: #edeef1;
+  --muted: #99a0ac;
+  --border: #282c34;
+  --accent: #ff5a66;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Pixel sprites should stay crisp rather than blur when scaled up. */
+.pixelated {
+  image-rendering: pixelated;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
