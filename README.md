@@ -54,8 +54,19 @@ one is and why it is built the way it is.
 | `visual-qa` | Skill | Builds, drives a real browser, screenshots, fails on console errors |
 | `parity-check` | Subagent | Audits where the two apps have diverged |
 
-## Data and attribution
+## Disclaimer
 
-Data comes from [PokeAPI](https://pokeapi.co) via the `PokeAPI/api-data` mirror,
-pinned to an exact commit so builds are reproducible. Pokémon and Pokémon
-character names are trademarks of Nintendo. This is a non-commercial fan project.
+Pocket Dex is a **personal portfolio project**, built to demonstrate software
+development skills. It is non-commercial, generates no revenue, and is not
+intended for commercial distribution or general public use.
+
+This project is not affiliated with, endorsed by, or sponsored by Nintendo, Game
+Freak, Creatures Inc., or The Pokémon Company. Pokémon and all related names,
+characters, artwork, and sprites are trademarks and copyrights of their
+respective owners, used here for non-commercial, illustrative purposes only.
+
+Data comes from [PokeAPI](https://pokeapi.co) — a free and open API — via the
+`PokeAPI/api-data` mirror, pinned to an exact commit so builds are reproducible.
+Sprite artwork is served from the [PokeAPI sprite
+repository](https://github.com/PokeAPI/sprites). If you own rights to material
+shown here and would like it removed, please open an issue.
