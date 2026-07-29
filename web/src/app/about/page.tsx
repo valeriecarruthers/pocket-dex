@@ -58,7 +58,7 @@ export default function AboutPage() {
           . If you own rights to material shown here and would like it removed, please open an
           issue on the{" "}
           <a
-            href="https://github.com/CorvusCali/pocket-dex"
+            href="https://github.com/valeriecarruthers/pocket-dex"
             className="underline underline-offset-2 hover:text-foreground"
             target="_blank"
             rel="noreferrer"
