@@ -1,5 +1,7 @@
 # Pocket Dex
 
+**Live web app → [pocket-dex-vc.vercel.app](https://pocket-dex-vc.vercel.app)**
+
 One product, built twice: a SwiftUI iOS app and a static Next.js web app that
 share a data contract and their domain rules.
 
