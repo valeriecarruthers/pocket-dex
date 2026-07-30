@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -95,6 +96,13 @@ export default function RootLayout({
         <div className="sm:hidden">
           <TabBar />
         </div>
+
+        {/*
+          Vercel Web Analytics — cookieless and aggregate-only, so it needs no
+          consent banner. Reports page views, referrers, countries, and devices;
+          it deliberately cannot identify individual visitors.
+        */}
+        <Analytics />
       </body>
     </html>
   );
