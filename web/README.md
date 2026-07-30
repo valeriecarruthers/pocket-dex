@@ -1,5 +1,7 @@
 # Pocket Dex — web
 
+**Live at [pocket-dex-vc.vercel.app](https://pocket-dex-vc.vercel.app)**
+
 Next.js 16 (App Router) + React 19 + Tailwind v4. Every page is prerendered at
 build time from a dataset committed to the repository.
 
