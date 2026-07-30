@@ -67,18 +67,29 @@ export default function RootLayout({
           {children}
         </main>
 
-        <footer className="mx-auto w-full max-w-6xl px-4 pb-24 pt-4 text-xs text-muted sm:pb-8">
-          Data from{" "}
-          <a
-            href="https://pokeapi.co"
-            className="underline underline-offset-2 hover:text-foreground"
-            target="_blank"
-            rel="noreferrer"
-          >
-            PokeAPI
-          </a>
-          . Pokémon and Pokémon character names are trademarks of Nintendo. This is a
-          non-commercial fan project.
+        <footer className="mx-auto w-full max-w-6xl px-4 pb-24 pt-4 text-xs leading-relaxed text-muted sm:pb-8">
+          <p>
+            Pocket Dex is a personal portfolio project built to demonstrate software
+            development skills. It is non-commercial and is not intended for commercial
+            distribution or general public use.
+          </p>
+          <p className="mt-1.5">
+            Not affiliated with, endorsed by, or sponsored by Nintendo, Game Freak, or The
+            Pokémon Company. Pokémon and all related names, characters, and artwork are
+            trademarks and copyrights of their respective owners. Data from{" "}
+            <a
+              href="https://pokeapi.co"
+              className="underline underline-offset-2 hover:text-foreground"
+              target="_blank"
+              rel="noreferrer"
+            >
+              PokeAPI
+            </a>
+            . <Link href="/about" className="underline underline-offset-2 hover:text-foreground">
+              More about this project
+            </Link>
+            .
+          </p>
         </footer>
 
         <div className="sm:hidden">

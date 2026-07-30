@@ -20,6 +20,55 @@ export default function AboutPage() {
         </p>
       </div>
 
+      <section className="rounded-2xl border border-border bg-surface-muted p-4 text-sm leading-relaxed">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+          Disclaimer
+        </h2>
+        <p>
+          Pocket Dex is a <strong className="font-semibold">personal portfolio project</strong>,
+          built to demonstrate software development skills. It is non-commercial, generates no
+          revenue, and is not intended for commercial distribution or general public use.
+        </p>
+        <p className="mt-2">
+          This project is not affiliated with, endorsed by, or sponsored by Nintendo, Game
+          Freak, Creatures Inc., or The Pokémon Company. Pokémon and all related names,
+          characters, artwork, and sprites are trademarks and copyrights of their respective
+          owners. All such material is used here for non-commercial, illustrative purposes
+          only, and remains the property of its owners.
+        </p>
+        <p className="mt-2">
+          Pokémon data is retrieved from{" "}
+          <a
+            href="https://pokeapi.co"
+            className="underline underline-offset-2 hover:text-foreground"
+            target="_blank"
+            rel="noreferrer"
+          >
+            PokeAPI
+          </a>
+          , a free and open API. Sprite artwork is served from the{" "}
+          <a
+            href="https://github.com/PokeAPI/sprites"
+            className="underline underline-offset-2 hover:text-foreground"
+            target="_blank"
+            rel="noreferrer"
+          >
+            PokeAPI sprite repository
+          </a>
+          . If you own rights to material shown here and would like it removed, please open an
+          issue on the{" "}
+          <a
+            href="https://github.com/valeriecarruthers/pocket-dex"
+            className="underline underline-offset-2 hover:text-foreground"
+            target="_blank"
+            rel="noreferrer"
+          >
+            project repository
+          </a>
+          .
+        </p>
+      </section>
+
       <DetailSection title="Dataset">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <StatCard title="Species" value={meta.counts.species.toLocaleString()} />
@@ -61,9 +110,10 @@ export default function AboutPage() {
             API calls at runtime and nothing breaks if PokeAPI has a bad day.
           </li>
           <li>
-            <strong className="font-semibold">Shared domain logic.</strong> The type chart,
-            regions, and formatting rules are ports of the Swift originals, expressed once from
-            the attacker&rsquo;s point of view with the defensive view derived from it.
+            <strong className="font-semibold">Shared domain logic.</strong>{" "}
+            The type chart, regions, and formatting rules are ports of the Swift originals,
+            expressed once from the attacker&rsquo;s point of view with the defensive view
+            derived from it.
           </li>
           <li>
             <strong className="font-semibold">Kept current by an agent.</strong> A scheduled
