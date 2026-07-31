@@ -47,11 +47,41 @@ const VIEWPORTS = [
   { name: "mobile", width: 390, height: 844 },
 ];
 
+/**
+ * Single elements captured magnified, at 2x device scale.
+ *
+ * A full-page screenshot at 1x proves the layout is right; it is too small to
+ * prove the *pixels* are right. A sprite bleeding through transparent artwork
+ * survived a full 24-shot sweep unnoticed and was obvious the moment one card
+ * was magnified — so the sweep now always ends with a few close-ups of the
+ * places where images and text actually get composited.
+ *
+ * Keep this list short and image-heavy. It exists to catch rendering bugs,
+ * not to re-inventory the site.
+ */
+const ELEMENTS = [
+  { name: "card", url: "/", selector: "a[href='/pokemon/charizard']" },
+  { name: "detail-artwork", url: "/pokemon/charizard", selector: "img[alt='Charizard']" },
+  // :has(img) distinguishes the evolution-tree card from the prev/next nav
+  // link, which points at the same href on this page.
+  { name: "evolution-stage", url: "/pokemon/eevee", selector: "a[href='/pokemon/vaporeon']:has(img)" },
+  { name: "type-chart-grid", url: "/types", selector: "table" },
+];
+
 /** Transparent 1x1 PNG, used when a sprite genuinely cannot be fetched. */
 const BLANK_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64",
 );
+
+/**
+ * Paths served by the Vercel runtime, which does not exist locally. The
+ * analytics script 404s on every page in a local run; reporting that would
+ * make the check fail every time and train you to ignore its output.
+ */
+function isPlatformOnly(url) {
+  return url.includes("/_vercel/");
+}
 
 const memoryCache = new Map();
 
@@ -107,18 +137,20 @@ async function main() {
         const tab = await context.newPage();
 
         tab.on("console", (message) => {
-          if (message.type() === "error") {
-            problems.push(`console error on ${label}: ${message.text()}`);
-          }
+          if (message.type() !== "error") return;
+          // Resource errors carry the offending URL in the location, so they
+          // can be filtered as precisely as the request events below.
+          if (isPlatformOnly(message.location()?.url ?? "")) return;
+          problems.push(`console error on ${label}: ${message.text()}`);
         });
         tab.on("pageerror", (error) => {
           problems.push(`page error on ${label}: ${error.message}`);
         });
         tab.on("requestfailed", (request) => {
           // Only same-origin failures indicate a bug in the app itself.
-          if (request.url().startsWith(BASE)) {
-            problems.push(`request failed on ${label}: ${request.url()}`);
-          }
+          if (!request.url().startsWith(BASE)) return;
+          if (isPlatformOnly(request.url())) return;
+          problems.push(`request failed on ${label}: ${request.url()}`);
         });
 
         const response = await tab.goto(`${BASE}${page.url}`, {
@@ -142,6 +174,49 @@ async function main() {
     }
   }
 
+  // Close-ups. Same pages, but one element at a time and magnified, because a
+  // full-page shot is too small to show whether the pixels are actually right.
+  const zoomDir = path.join(OUT, "zoom");
+  await mkdir(zoomDir, { recursive: true });
+
+  for (const theme of ["light", "dark"]) {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      colorScheme: theme,
+      deviceScaleFactor: 2,
+    });
+
+    await context.route("https://raw.githubusercontent.com/**", async (route) => {
+      const body = await spriteBytes(route.request().url());
+      await route.fulfill({ status: 200, contentType: "image/png", body });
+    });
+
+    for (const element of ELEMENTS) {
+      const label = `${element.name} [${theme}]`;
+      const tab = await context.newPage();
+
+      await tab.goto(`${BASE}${element.url}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      await tab.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+      await tab.waitForTimeout(400);
+
+      const target = tab.locator(element.selector).first();
+      if ((await target.count()) === 0) {
+        // A selector that stops matching usually means the markup moved, which
+        // is worth failing on — otherwise coverage silently disappears.
+        problems.push(`no element matched ${element.selector} for ${label}`);
+      } else {
+        await target.screenshot({ path: path.join(zoomDir, `${element.name}-${theme}.png`) });
+      }
+
+      await tab.close();
+    }
+
+    await context.close();
+  }
+
   await browser.close();
 
   if (problems.length > 0) {
@@ -150,8 +225,12 @@ async function main() {
     process.exit(1);
   }
 
+  const pageShots = PAGES.length * VIEWPORTS.length * 2;
+  const zoomShots = ELEMENTS.length * 2;
   process.stdout.write(
-    `Captured ${PAGES.length * VIEWPORTS.length * 2} screenshots to ${OUT}\n`,
+    `Captured ${pageShots} page screenshots and ${zoomShots} close-ups to ${OUT}\n` +
+      `Look at ${zoomDir} — layout bugs show up in the page shots, ` +
+      `rendering bugs only show up in the close-ups.\n`,
   );
 }
 
