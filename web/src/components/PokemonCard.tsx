@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { artworkURL, formattedPokedexNumber, spriteURL } from "@/lib/format";
+import { artworkURL, formattedPokedexNumber } from "@/lib/format";
 import { typeColor } from "@/lib/pokemon-type";
 import type { PokemonSummary } from "@/lib/types";
 
@@ -39,13 +39,6 @@ export function PokemonCard({
           loading={priority ? "eager" : "lazy"}
           priority={priority}
           className="object-contain drop-shadow-sm"
-          // The 1 KB pixel sprite stands in until the artwork decodes.
-          style={{
-            backgroundImage: `url(${shiny ? spriteURL(pokemon.id, true) : spriteURL(pokemon.id)})`,
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "center",
-            backgroundSize: "45%",
-          }}
         />
       </div>
 
