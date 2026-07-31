@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Analytics } from "@vercel/analytics/next";
 
 import { TabBar } from "@/components/TabBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -95,6 +96,8 @@ export default function RootLayout({
         <div className="sm:hidden">
           <TabBar />
         </div>
+
+        <Analytics />
       </body>
     </html>
   );
