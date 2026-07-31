@@ -11,7 +11,6 @@ import {
   artworkURL,
   baseExperienceText,
   heightText,
-  spriteURL,
   statLabel,
   weightText,
 } from "@/lib/format";
@@ -83,12 +82,6 @@ export function PokemonProfile({
               sizes="(max-width: 768px) 90vw, 320px"
               priority
               className="object-contain"
-              style={{
-                backgroundImage: `url(${spriteURL(detail.id, shiny)})`,
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "center",
-                backgroundSize: "40%",
-              }}
             />
 
             <button
