@@ -1,151 +1,130 @@
 ---
 name: pokedex-sync
-description: Checks whether upstream PokeAPI data has changed and, if it has, regenerates the web app's static dataset and opens a pull request describing exactly what moved. Use this skill whenever the user asks to check for new Pokémon, refresh or update the Pokédex data, mentions a new game or generation being released, asks whether the dataset is stale or out of date, or wants to set up a recurring/scheduled data check. Also use it when a scheduled job or Routine fires asking to sync Pokédex data.
+description: Checks whether upstream PokeAPI data has changed and, if it has, regenerates the web dataset, rewrites the iOS app's hardcoded species sets to match, and opens a pull request describing exactly what moved. Use this skill whenever the user asks to check for new Pokémon, refresh or update the Pokédex data, mentions a new game or generation being released, asks whether the dataset is stale or out of date, wants to know why the two apps disagree about forms, or wants to set up or debug a recurring data check. Also use it when a scheduled job or Routine fires asking to sync Pokédex data.
 ---
 
-# Pokédex dataset sync
+# Pokédex data sync
 
-The web app in `web/` renders from a static dataset committed to the repository,
-generated from the `PokeAPI/api-data` mirror and pinned to an exact commit. That
-pinning is what makes this job cheap: deciding "is our data stale?" is one SHA
-comparison, not a diff of a thousand endpoints.
+Both apps render from the same upstream facts, but they store them differently:
 
-Your job is to answer that question and, when the answer is yes, produce a pull
-request a human can review in under a minute.
+- **Web** reads a generated dataset committed at `web/src/data/`, pinned to an
+  exact `PokeAPI/api-data` commit.
+- **iOS** hardcodes three species sets in `PokemonModels.swift` — which species
+  have a Mega, a Gigantamax, and more than one variety — because it cannot
+  afford to derive them at runtime.
 
-## The short version
+A data update has to land on both, or they drift apart silently. That is the
+whole job.
+
+## This normally runs itself
+
+`.github/workflows/pokedex-sync.yml` does all of the below on a weekly schedule
+and is free on a public repository. **Check whether it already ran before doing
+anything by hand** — a `pokedex-sync/*` branch or an open pull request means the
+work is done and needs review, not repeating.
+
+Run it on demand from the Actions tab (**Run workflow**), which is usually
+better than driving it manually.
+
+Drive it by hand when the automation is broken, when you need to reason about a
+change it flagged for a human, or when you are testing a change to the pipeline
+itself.
+
+## Doing it by hand
 
 ```bash
 cd web
-npm run data:check    # exit 0 = current, exit 1 = drifted
+npm run data:check     # exit 0 = current, exit 1 = upstream moved
 ```
 
-If it exits 0, say so and stop. Do not regenerate, do not open a PR, do not
-commit. A no-op run should leave no trace — that is what makes it safe to run on
-a schedule.
+Exit 0 means stop. Do not regenerate, do not commit, do not open a pull request.
+A no-op run should leave no trace — that is what makes this safe to schedule.
 
-If it exits 1, work through the sections below.
-
-## When the dataset has drifted
-
-### 1. Regenerate
+If it exits 1:
 
 ```bash
-cd web
-npm run data:build
-```
-
-This takes a couple of minutes and rewrites `web/src/data/`. It is deterministic
-for a given upstream commit, so re-running it never produces spurious churn.
-
-### 2. Work out what actually changed
-
-`git diff --stat` on the dataset is close to useless — the files are minified
-JSON on one line. What a reviewer wants is the semantic delta, so compute it:
-
-```bash
-cd web
-git stash && node -e "
-  const before = require('./src/data/meta.json');
-  console.log(JSON.stringify(before.counts));
-" ; git stash pop
-```
-
-More practically, compare the `counts` block in `web/src/data/meta.json` against
-the committed version, and diff the species index by name:
-
-```bash
-cd web
-git show HEAD:web/src/data/pokedex.json > /tmp/pokedex-old.json 2>/dev/null \
-  || git show HEAD:src/data/pokedex.json > /tmp/pokedex-old.json
-node -e "
-  const oldList = require('/tmp/pokedex-old.json');
-  const newList = require('./src/data/pokedex.json');
-  const oldById = new Map(oldList.map(p => [p.id, p]));
-  const newById = new Map(newList.map(p => [p.id, p]));
-
-  const added = newList.filter(p => !oldById.has(p.id));
-  const removed = oldList.filter(p => !newById.has(p.id));
-  const retyped = newList.filter(p => {
-    const prev = oldById.get(p.id);
-    return prev && prev.types.join() !== p.types.join();
-  });
-  const formsChanged = newList.filter(p => {
-    const prev = oldById.get(p.id);
-    return prev && (prev.hasMega !== p.hasMega || prev.hasGigantamax !== p.hasGigantamax);
-  });
-
-  console.log('added:', added.map(p => p.displayName).join(', ') || 'none');
-  console.log('removed:', removed.map(p => p.displayName).join(', ') || 'none');
-  console.log('retyped:', retyped.map(p => p.displayName).join(', ') || 'none');
-  console.log('form flags changed:', formsChanged.map(p => p.displayName).join(', ') || 'none');
-"
-```
-
-Nothing semantic changing is a real and common outcome — upstream commits often
-touch unrelated resources. Say so plainly in the PR rather than inventing
-significance.
-
-### 3. Verify before proposing
-
-A dataset change can break the build (a new species with an unexpected shape, a
-missing evolution chain). Check before asking anyone to review:
-
-```bash
-cd web
-npm test
+npm run data:build     # regenerate the web dataset (~2 minutes)
+npm run data:report    # what actually changed, in species terms
+npm run ios:sync       # rewrite the iOS sets from the new dataset
+npm test               # 324 type matchups vs upstream
 npm run build
 ```
 
-The type chart test matters here beyond the obvious: if a generation introduced a
-19th type or changed a matchup, the hand-written chart in
-`src/lib/pokemon-type.ts` is now wrong and must be updated by hand. The test is
-the tripwire for exactly that.
+Then commit `web/src/data/` and `Pocket Dex/Features/Pokedex/Models/PokemonModels.swift`
+together and open a pull request with the report as the body.
 
-### 4. Open the pull request
+## Reading the report
 
-Branch from the current default branch, commit only `web/src/data/`, and push.
-Structure the description so the interesting part is first:
+`data:report` exists because `git diff --stat` is useless here — the dataset is
+minified JSON on one line, so it says "1 file changed" whether upstream fixed a
+typo or shipped a generation. The report turns that into species-level facts:
+added, removed, retyped, and changed form flags, with before/after totals.
 
-```markdown
-## What changed
-<the semantic delta — added/removed/retyped species, or "no semantic change">
+It exits 0 when nothing user-visible changed, 1 when something did.
 
-## Source
-`PokeAPI/api-data` moved from `<old-sha-12>` to `<new-sha-12>`.
+**Upstream moving without any user-visible change is normal and common.** Say so
+plainly rather than inventing significance. The pull request is still worth
+merging, because it advances the pinned commit — otherwise the next run
+regenerates everything again from the same stale pin.
 
-## Counts
-| | before | after |
-|---|---|---|
-| species | … | … |
-| forms | … | … |
+## The two things a script cannot finish
 
-## Verification
-- `npm run build` — <result>
-- type chart test — <result>
-```
+The report flags these loudly. Both need a person, and both affect **both**
+codebases:
 
-If the type chart test failed, do not paper over it. Say what broke, leave the
-dataset change out of the PR, and describe what a human needs to decide.
+**A new generation** — species numbered above #1025. Region names, dex ranges,
+generation numerals and colours are editorial, not derivable:
 
-## Running this on a schedule
+- `web/src/lib/regions.ts`
+- `Pocket Dex/Features/Pokedex/Models/PokemonEnums.swift`
 
-Weekly is the right cadence — PokeAPI moves slowly, and a daily job would mostly
-produce empty runs. Two ways to wire it up, depending on where you want it to run:
+**A new or changed type** — the matchup chart is written out by hand in both
+apps, once from the attacker's side with the defensive view derived:
 
-**A Claude Routine** (runs in a Claude Code session, can open the PR itself):
-ask for a Routine with a cron of `0 14 * * 1` (Mondays, 14:00 UTC) and a prompt
-of "Run the pokedex-sync skill." Because the skill exits early when nothing has
-changed, quiet weeks cost almost nothing.
+- `web/src/lib/pokemon-type.ts`
+- `Pocket Dex/Features/TypeChart/Models/PokemonType.swift`
 
-**A GitHub Action** (runs in CI, no Claude session needed): see
-`references/github-action.md` for a workflow that runs the check and opens the PR
-with the `gh` CLI.
+`npm test` is the tripwire for the second one: it checks all 324 matchups against
+upstream's own `damage_relations`, so a chart that has gone stale fails rather
+than shipping quietly. If it fails, do not merge the data change — say what broke
+and what a human needs to decide.
 
-## Why it is built this way
+## Why the iOS sets are rewritten rather than reviewed
 
-The temptation with a "check for updates" job is to have it diff live API list
-endpoints on every run. That is slow, rate-limited, and noisy — list ordering
-changes produce phantom diffs. Pinning to a commit turns the question into a
-string comparison, makes every rebuild byte-reproducible, and gives the PR a
-precise, linkable statement of what the data came from.
+`scripts/sync-ios-sets.mjs` regenerates the three Swift arrays from the dataset.
+This is safe because the derivation was verified to reproduce the hand-written
+file **byte for byte** — same 87 Mega, 32 Gigantamax, 224 multi-form species, same
+wrapping.
+
+That byte-stability is load-bearing, not cosmetic. If the generated formatting
+differed from the committed file, every run would produce a diff even when no
+species changed, and the schedule would open pull requests that say nothing.
+`npm run ios:sync -- --check` exits non-zero when the sets are stale, which is
+how you tell the two apps have drifted.
+
+The iOS project is not built by the workflow — that needs macOS. The rewrite is
+mechanical and formatting-stable, so the diff should contain only species
+numbers. If it contains anything else, something is wrong with the generator.
+
+## Does parity-check belong here?
+
+Usually no, and it is worth knowing why.
+
+`parity-check` finds *feature* drift — something one app does that the other
+does not. A data sync does not cause feature drift; it causes data drift, and
+`ios:sync` already fixes that by construction.
+
+The exception is a change the report flags for a human. Adding a generation
+touches regions, generations, and possibly the type chart across both codebases,
+and that is exactly when an independent audit earns its keep. Run it *after* the
+manual edits, to confirm the two apps agree again.
+
+## Cost
+
+Free. Actions minutes are unlimited on public repositories, and a quiet week is
+one `git ls-remote` plus a string comparison — it finishes in seconds without
+installing dependencies, because `build-dataset.mjs` uses only Node built-ins.
+
+A Claude Routine could do the same job and write a better prose summary, but it
+spends session usage every week to usually say "nothing changed". For a
+portfolio project the Action is the right trade.

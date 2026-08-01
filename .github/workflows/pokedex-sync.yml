@@ -1,0 +1,153 @@
+name: Pokédex data sync
+
+# Checks weekly whether upstream PokeAPI data has moved. If it has, regenerates
+# the web dataset, rewrites the iOS app's hardcoded species sets from it, and
+# opens a pull request describing what actually changed.
+#
+# Free on public repositories, and on a quiet week the whole run is one
+# `git ls-remote` and a string comparison — so it costs essentially nothing to
+# leave scheduled.
+
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays, 14:00 UTC
+  workflow_dispatch: # allow a manual run from the Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pokedex-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # --- Cheap check first -------------------------------------------------
+      # Exits 0 when the pinned upstream commit still matches, so quiet weeks
+      # finish here in seconds without installing anything.
+      - id: check
+        name: Has upstream moved?
+        working-directory: web
+        run: |
+          if node scripts/build-dataset.mjs --check; then
+            echo "drifted=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream unchanged — nothing to do."
+          else
+            echo "drifted=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.check.outputs.drifted == 'true'
+        run: npm ci
+        working-directory: web
+
+      - name: Regenerate dataset
+        if: steps.check.outputs.drifted == 'true'
+        run: npm run data:build
+        working-directory: web
+
+      # --- Describe the change ----------------------------------------------
+      - id: report
+        name: Summarise what changed
+        if: steps.check.outputs.drifted == 'true'
+        run: |
+          set +e
+          node scripts/report-dataset-changes.mjs > /tmp/report.md
+          status=$?
+          set -e
+          cat /tmp/report.md
+          # 0 = nothing user-visible, 1 = something changed, anything else = the
+          # reporter itself broke, which should fail loudly rather than be read
+          # as "no changes".
+          if [ "$status" -gt 1 ]; then
+            echo "::error::report-dataset-changes.mjs failed with status $status"
+            exit 1
+          fi
+          echo "changed=$status" >> "$GITHUB_OUTPUT"
+
+      # --- Keep iOS in step with the web dataset ----------------------------
+      - name: Sync the iOS species sets
+        if: steps.check.outputs.drifted == 'true'
+        run: node scripts/sync-ios-sets.mjs
+
+      # --- Verify before asking anyone to look ------------------------------
+      # The type chart is hand-written in both apps; this test is the tripwire
+      # for a generation that changes or adds a type.
+      - id: verify
+        name: Test and build
+        if: steps.check.outputs.drifted == 'true'
+        working-directory: web
+        run: |
+          set +e
+          npm test > /tmp/test.log 2>&1
+          test_status=$?
+          npm run build > /tmp/build.log 2>&1
+          build_status=$?
+          set -e
+          echo "test_status=$test_status" >> "$GITHUB_OUTPUT"
+          echo "build_status=$build_status" >> "$GITHUB_OUTPUT"
+          tail -30 /tmp/test.log
+          tail -30 /tmp/build.log
+
+      # --- Propose it --------------------------------------------------------
+      # A pull request is opened whenever upstream moved, even if nothing
+      # user-visible changed. Merging it advances the pinned commit; skipping it
+      # would leave the repository pinned to the old ref and make this job
+      # regenerate the whole dataset again every week until something did change.
+      # The body says plainly which of the two happened.
+      - name: Open a pull request
+        if: steps.check.outputs.drifted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="pokedex-sync/$(date +%Y-%m-%d)-${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add web/src/data "Pocket Dex/Features/Pokedex/Models/PokemonModels.swift"
+          git commit -m "Refresh Pokédex data from upstream PokeAPI"
+          git push -u origin "$BRANCH"
+
+          {
+            echo "Automated sync. Upstream \`PokeAPI/api-data\` moved, so the dataset was regenerated and the iOS species sets rewritten from it."
+            echo
+            cat /tmp/report.md
+            echo
+            echo "## Verification"
+            echo
+            if [ "${{ steps.verify.outputs.test_status }}" = "0" ]; then
+              echo "- \`npm test\` — passed (all 324 type matchups still match upstream)"
+            else
+              echo "- \`npm test\` — **FAILED**. The hand-written type chart no longer matches upstream. Do not merge until it is updated in both apps."
+            fi
+            if [ "${{ steps.verify.outputs.build_status }}" = "0" ]; then
+              echo "- \`npm run build\` — passed"
+            else
+              echo "- \`npm run build\` — **FAILED**. See the workflow log."
+            fi
+            echo
+            echo "The iOS project is not built here (it needs macOS). \`PokemonModels.swift\` was rewritten mechanically and its formatting is byte-stable, so the diff should contain only species numbers."
+          } > /tmp/body.md
+
+          if [ "${{ steps.report.outputs.changed }}" = "1" ]; then
+            TITLE="Refresh Pokédex data from upstream"
+          else
+            TITLE="Refresh Pokédex data from upstream (no user-visible changes)"
+          fi
+
+          # Assigning the owner is what turns this into a notification.
+          gh pr create \
+            --title "$TITLE" \
+            --body-file /tmp/body.md \
+            --assignee "${{ github.repository_owner }}"
