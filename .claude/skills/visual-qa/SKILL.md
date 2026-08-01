@@ -22,8 +22,24 @@ npx next start -p 3210 &          # or: npm run dev
 npm run screenshot
 ```
 
-Output lands in `web/.screenshots/` as `<page>-<viewport>-<theme>.png` — six
-pages across desktop and mobile, light and dark, so 24 images.
+Output lands in `web/.screenshots/`:
+
+- `<page>-<viewport>-<theme>.png` — six pages across desktop and mobile, light
+  and dark, so 24 images
+- `zoom/<element>-<theme>.png` — four single components at 2× device scale
+
+Both sets matter, and they catch different things:
+
+| | Catches |
+|---|---|
+| Page shots (1×) | Layout — overflow, collapsed columns, overlap, clipping |
+| Close-ups (2×) | Rendering — wrong pixels inside an element that looks fine small |
+
+**Look at the close-ups.** A sprite bleeding through transparent artwork once
+survived a full 24-shot sweep unnoticed: at page scale the ghost read as part of
+the illustration, and it was unmistakable the moment one card was magnified. If
+you only skim the page shots, you are checking that boxes are in the right
+places, not that their contents are correct.
 
 The script exits non-zero on console errors, uncaught page errors, non-OK
 responses, or failed same-origin requests. Treat a non-zero exit as a real
@@ -52,13 +68,36 @@ Open the images. Specifically check:
 - **Interactive state** — the gallery renders its first page server-side, so if
   cards are missing entirely the client component failed, not the data.
 
-## Adding a page to the sweep
+## Adding to the sweep
 
-Edit the `PAGES` array in `web/scripts/screenshot.mjs`. Keep the list short and
-representative — it exists to catch layout regressions, not to enumerate the
-site. The current set covers the gallery, a detail page with alternate forms
-(Charizard), a detail page with a branching evolution tree (Eevee), the type
-chart, a type detail page, and About.
+Two arrays in `web/scripts/screenshot.mjs`:
+
+**`PAGES`** — whole pages, for layout. Keep it short and representative; it
+exists to catch layout regressions, not to enumerate the site. Currently: the
+gallery, a detail page with alternate forms (Charizard), one with a branching
+evolution tree (Eevee), the type chart, a type detail page, and About.
+
+**`ELEMENTS`** — single components magnified, for rendering. Keep these
+image-heavy and compact, since that is where compositing bugs hide. Currently: a
+gallery card, the detail hero artwork, one evolution-tree stage, and the matchup
+grid.
+
+Two things to get right when writing a selector:
+
+- **Make sure it matches the element you mean.** `a[href='/pokemon/vaporeon']`
+  looks specific but also matches the prev/next navigation link on Eevee's page,
+  so the capture silently became a 32px-tall text link. `:has(img)` disambiguated
+  it. Check the output dimensions after adding one — a surprising size means you
+  captured the wrong node.
+- **A selector that stops matching fails the run.** That is deliberate: markup
+  moves, and a close-up that quietly disappears is worse than a loud failure.
+
+## Failures the script ignores on purpose
+
+Requests to `/_vercel/` are filtered out. The analytics script only exists on
+Vercel's edge, so it 404s on every page of a local run — reporting it would make
+the check fail every time and teach you to ignore the output. If you add another
+platform-only path, extend `isPlatformOnly` rather than loosening the filter.
 
 ## Why sprites are served from Node
 
