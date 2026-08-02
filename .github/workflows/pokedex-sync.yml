@@ -7,6 +7,11 @@ name: Pokédex data sync
 # Free on public repositories, and on a quiet week the whole run is one
 # `git ls-remote` and a string comparison — so it costs essentially nothing to
 # leave scheduled.
+#
+# One-time setup: GitHub blocks Actions from opening pull requests by default.
+# Enable it under Settings → Actions → General → Workflow permissions →
+# "Allow GitHub Actions to create and approve pull requests". Without it every
+# run pushes its branch and then fails at the final step.
 
 on:
   schedule:
@@ -147,7 +152,26 @@ jobs:
           fi
 
           # Assigning the owner is what turns this into a notification.
-          gh pr create \
-            --title "$TITLE" \
-            --body-file /tmp/body.md \
-            --assignee "${{ github.repository_owner }}"
+          if ! gh pr create \
+                --title "$TITLE" \
+                --body-file /tmp/body.md \
+                --assignee "${{ github.repository_owner }}" 2> /tmp/pr-error.log; then
+            cat /tmp/pr-error.log
+
+            if grep -q "not permitted to create or approve pull requests" /tmp/pr-error.log; then
+              echo "::error::GitHub Actions is not allowed to open pull requests in this repository."
+              {
+                echo "## Pull request could not be opened"
+                echo
+                echo "The work is safe — branch \`$BRANCH\` was pushed successfully. Only the"
+                echo "pull request creation was refused."
+                echo
+                echo "**Fix it once:** Settings → Actions → General → Workflow permissions →"
+                echo "tick **Allow GitHub Actions to create and approve pull requests** → Save."
+                echo
+                echo "Then either re-run this workflow, or open a pull request from"
+                echo "\`$BRANCH\` by hand — the commit is already there."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 1
+          fi

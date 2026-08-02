@@ -26,6 +26,14 @@ work is done and needs review, not repeating.
 Run it on demand from the Actions tab (**Run workflow**), which is usually
 better than driving it manually.
 
+**If the run fails at "Open a pull request"** with *"GitHub Actions is not
+permitted to create or approve pull requests"*, that is a one-time repository
+setting, not a broken workflow: Settings → Actions → General → Workflow
+permissions → tick **Allow GitHub Actions to create and approve pull requests**.
+The branch is pushed before the pull request is attempted, so nothing is lost —
+re-run, or open the pull request from the existing `pokedex-sync/*` branch by
+hand.
+
 Drive it by hand when the automation is broken, when you need to reason about a
 change it flagged for a human, or when you are testing a change to the pipeline
 itself.
