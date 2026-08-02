@@ -10,7 +10,9 @@
     "test": "node --test --experimental-strip-types \"tests/*.test.mjs\"",
     "data:build": "node scripts/build-dataset.mjs",
     "data:check": "node scripts/build-dataset.mjs --check",
-    "screenshot": "node scripts/screenshot.mjs"
+    "screenshot": "node scripts/screenshot.mjs",
+    "ios:sync": "node ../scripts/sync-ios-sets.mjs",
+    "data:report": "node ../scripts/report-dataset-changes.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
