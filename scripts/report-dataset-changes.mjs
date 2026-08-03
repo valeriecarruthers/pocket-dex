@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFile);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REL = "web/src/data/pokedex.json";
+const ABILITIES_REL = "web/src/data/abilities.json";
 
 /** The highest national dex number the apps have region and generation data for. */
 const KNOWN_MAX_SPECIES = 1025;
@@ -48,22 +49,43 @@ function list(names, limit = 25) {
   return names.length > limit ? `${shown}, and ${names.length - limit} more` : shown;
 }
 
+async function committed(ref, rel) {
+  const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], {
+    cwd: ROOT,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return JSON.parse(stdout);
+}
+
 async function main() {
   const ref = baseRef();
 
   let previous;
   try {
-    const { stdout } = await execFileAsync("git", ["show", `${ref}:${REL}`], {
-      cwd: ROOT,
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    previous = JSON.parse(stdout);
+    previous = await committed(ref, REL);
   } catch {
     process.stdout.write("No committed dataset to compare against — treating as a first import.\n");
     process.exit(1);
   }
 
   const current = JSON.parse(await readFile(path.join(ROOT, REL), "utf8"));
+
+  // Ability descriptions are rendered in the detail-page popover, so a reworded
+  // effect is a user-visible change even though no species record moved.
+  let abilityChanges = [];
+  try {
+    const previousAbilities = await committed(ref, ABILITIES_REL);
+    const currentAbilities = JSON.parse(await readFile(path.join(ROOT, ABILITIES_REL), "utf8"));
+    abilityChanges = Object.keys(currentAbilities)
+      .filter((name) => {
+        const before = previousAbilities[name];
+        const after = currentAbilities[name];
+        return !before || before.description !== after.description;
+      })
+      .map((name) => currentAbilities[name].displayName ?? name);
+  } catch {
+    // Abilities file missing on one side is not fatal; the species diff still stands.
+  }
 
   const before = new Map(previous.map((p) => [p.id, p]));
   const after = new Map(current.map((p) => [p.id, p]));
@@ -105,7 +127,8 @@ async function main() {
     retyped.length ||
     megaChanged.length ||
     gmaxChanged.length ||
-    formsChanged.length;
+    formsChanged.length ||
+    abilityChanges.length;
 
   const out = [];
 
@@ -141,7 +164,7 @@ async function main() {
 
   if (!changed) {
     out.push(
-      "No species-level changes. Upstream moved, but nothing the apps render is different.",
+      "No species or ability changes. Upstream moved, but nothing the apps render is different.",
       "",
     );
   } else {
@@ -151,6 +174,7 @@ async function main() {
     if (megaChanged.length) out.push(`- **Mega changed (${megaChanged.length}):** ${list(megaChanged)}`);
     if (gmaxChanged.length) out.push(`- **Gigantamax changed (${gmaxChanged.length}):** ${list(gmaxChanged)}`);
     if (formsChanged.length) out.push(`- **Alternate forms changed (${formsChanged.length}):** ${list(formsChanged)}`);
+    if (abilityChanges.length) out.push(`- **Ability text changed (${abilityChanges.length}):** ${list(abilityChanges)}`);
     out.push("");
   }
 
