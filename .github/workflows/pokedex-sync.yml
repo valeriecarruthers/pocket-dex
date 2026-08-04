@@ -116,13 +116,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          BRANCH="pokedex-sync/$(date +%Y-%m-%d)-${GITHUB_RUN_ID}"
+          # One reusable branch, always rebuilt from the freshly checked-out
+          # default branch and force-pushed. A per-run branch name looks tidier
+          # but lets unmerged syncs pile up, and the second one conflicts with
+          # the first over meta.json. With a single branch the open pull request
+          # is always exactly "current upstream vs current main".
+          BRANCH="pokedex-sync"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          git checkout -B "$BRANCH"
           git add web/src/data "Pocket Dex/Features/Pokedex/Models/PokemonModels.swift"
           git commit -m "Refresh Pokédex data from upstream PokeAPI"
-          git push -u origin "$BRANCH"
+          git push --force -u origin "$BRANCH"
 
           {
             echo "Automated sync. Upstream \`PokeAPI/api-data\` moved, so the dataset was regenerated and the iOS species sets rewritten from it."
@@ -149,6 +154,14 @@ jobs:
             TITLE="Refresh Pokédex data from upstream"
           else
             TITLE="Refresh Pokédex data from upstream (no user-visible changes)"
+          fi
+
+          # Updating the existing pull request keeps one thread rather than
+          # opening a new one every week. Must come after $TITLE is set.
+          if gh pr view "$BRANCH" --json number --jq .number > /dev/null 2>&1; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file /tmp/body.md
+            echo "Updated the existing pull request for $BRANCH."
+            exit 0
           fi
 
           # Assigning the owner is what turns this into a notification.
