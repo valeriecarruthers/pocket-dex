@@ -1,0 +1,56 @@
+name: CI
+
+# Runs on every pull request so "all checks passed" means something. This is
+# what makes it safe to auto-merge the routine data syncs: the type chart is
+# still verified against upstream and the site still builds before anything
+# merges itself.
+#
+# Free on public repositories.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      - name: Lint
+        run: npm run lint
+        working-directory: web
+
+      # Checks all 324 type matchups against PokeAPI's own damage relations.
+      # This is the tripwire for a generation that adds or changes a type: the
+      # chart is hand-written in both apps, so it cannot self-correct.
+      - name: Test
+        run: npm test
+        working-directory: web
+
+      - name: Build
+        run: npm run build
+        working-directory: web
+
+      # The iOS app hardcodes species sets that are derived from the web
+      # dataset. If they drift, the two apps disagree about which Pokémon have
+      # Megas and forms — invisible until someone compares them by hand.
+      - name: Check iOS data is in sync with the web dataset
+        run: node scripts/sync-ios-sets.mjs --check

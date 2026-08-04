@@ -161,14 +161,14 @@ jobs:
           if gh pr view "$BRANCH" --json number --jq .number > /dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body-file /tmp/body.md
             echo "Updated the existing pull request for $BRANCH."
+            "$GITHUB_WORKSPACE/.github/triage-sync-pr.sh" "$BRANCH" "${{ steps.report.outputs.changed }}" "${{ github.repository_owner }}"
             exit 0
           fi
 
           # Assigning the owner is what turns this into a notification.
           if ! gh pr create \
                 --title "$TITLE" \
-                --body-file /tmp/body.md \
-                --assignee "${{ github.repository_owner }}" 2> /tmp/pr-error.log; then
+                --body-file /tmp/body.md 2> /tmp/pr-error.log; then
             cat /tmp/pr-error.log
 
             if grep -q "not permitted to create or approve pull requests" /tmp/pr-error.log; then
@@ -188,3 +188,25 @@ jobs:
             fi
             exit 1
           fi
+
+          "$GITHUB_WORKSPACE/.github/triage-sync-pr.sh" "$BRANCH" "${{ steps.report.outputs.changed }}" "${{ github.repository_owner }}"
+
+      # Sync branches from before the single-branch scheme, or left behind by a
+      # run that failed after pushing. Anything matching pokedex-sync/* other
+      # than the canonical branch is superseded by definition — the canonical
+      # one always carries current upstream.
+      - name: Prune stale sync branches
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for ref in $(git ls-remote --heads origin 'refs/heads/pokedex-sync/*' | awk '{print $2}'); do
+            branch="${ref#refs/heads/}"
+            if [ "$branch" = "pokedex-sync" ]; then continue; fi
+            if gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' | grep -q .; then
+              echo "Keeping $branch — it still has an open pull request."
+              continue
+            fi
+            echo "Deleting superseded branch $branch"
+            git push origin --delete "$branch" || echo "Could not delete $branch"
+          done
