@@ -1,0 +1,105 @@
+name: Site health
+
+# Checks every six hours that the deployed site is serving a working Pokédex,
+# and opens a GitHub issue if it is not. An issue is used deliberately: it
+# notifies through the channel that already works, costs nothing, and keeps a
+# history of outages without signing up for a monitoring service.
+#
+# Free on public repositories. Each run is four HTTP requests.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours, off the hour to avoid the busy minute
+  workflow_dispatch:
+  # Verify a release actually worked, rather than trusting a green build.
+  deployment_status:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: site-health
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # On deployment events, only check real production successes.
+    # Both spellings, because the environment name comes from the deploying
+    # integration rather than from GitHub.
+    if: >-
+      github.event_name != 'deployment_status' ||
+      (github.event.deployment_status.state == 'success' &&
+       (github.event.deployment_status.environment == 'Production' ||
+        github.event.deployment_status.environment == 'production'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Give Vercel a moment to finish propagating a fresh deployment.
+      - name: Settle
+        if: github.event_name == 'deployment_status'
+        run: sleep 30
+
+      - id: health
+        name: Check the site
+        run: |
+          set +e
+          node scripts/health-check.mjs > /tmp/health.md 2>&1
+          echo "failed=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat /tmp/health.md
+          cat /tmp/health.md >> "$GITHUB_STEP_SUMMARY"
+
+      # --- Failing: open one issue, or add to the existing one ---------------
+      - name: Report a failure
+        if: steps.health.outputs.failed == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --label site-down --state open --limit 1 --json number --jq '.[0].number // empty')
+
+          {
+            echo "The scheduled health check could not confirm the site is working."
+            echo
+            cat /tmp/health.md
+            echo
+            echo "[Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } > /tmp/issue.md
+
+          if [ -n "$EXISTING" ]; then
+            # Still down — comment rather than opening a duplicate every 6 hours.
+            gh issue comment "$EXISTING" --body-file /tmp/issue.md
+            echo "Commented on existing issue #$EXISTING."
+          else
+            gh label create site-down --color B60205 --description "Automated health check failure" 2>/dev/null || true
+            gh issue create \
+              --title "Site health check failing" \
+              --body-file /tmp/issue.md \
+              --label site-down \
+              --assignee "${{ github.repository_owner }}"
+          fi
+
+      # --- Passing: close anything that was open -----------------------------
+      - name: Report a recovery
+        if: steps.health.outputs.failed == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --label site-down --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            {
+              echo "Recovered — all checks passing again."
+              echo
+              cat /tmp/health.md
+            } > /tmp/recovered.md
+            gh issue comment "$EXISTING" --body-file /tmp/recovered.md
+            gh issue close "$EXISTING"
+            echo "Closed issue #$EXISTING."
+          else
+            echo "All checks passed."
+          fi

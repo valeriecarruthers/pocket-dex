@@ -42,6 +42,34 @@ npm run dev          # http://localhost:3000
 
 See [`web/README.md`](web/README.md) for architecture and deployment.
 
+## How it maintains itself
+
+Three GitHub Actions, all free on a public repository. The intent is that a
+quiet month needs no attention at all, and anything that does need attention
+finds you rather than waiting to be noticed.
+
+| Workflow | Runs | Does |
+|---|---|---|
+| `ci` | Every pull request | Lint, type-chart test, build, and an iOS/web data drift check |
+| `pokedex-sync` | Weekly | Detects upstream PokeAPI changes, regenerates the dataset, rewrites the iOS species sets |
+| `uptime` | Every 6 hours, and after each deploy | Checks the live site serves a working Pokédex |
+
+**Routine syncs merge themselves.** When a sync carries no user-visible change —
+usually just a new pinned upstream commit — it arms auto-merge and notifies
+nobody. CI still has to pass first. Reviewing those by hand is busywork that
+trains you to rubber stamp, which is when a real change slips through.
+
+**Real changes wait for a person.** New species, retyped Pokémon, changed
+Mega/Gigantamax flags, or reworded ability text assign the pull request to the
+repository owner, which is what generates the notification. A new generation or
+an unrecognised type is flagged even louder, because region and type data is
+hand-written in both apps and cannot be derived.
+
+**A broken site opens an issue.** The health check asserts on page content, not
+just status codes, so a build that deploys successfully but renders an empty
+gallery still fails. It comments on the existing issue rather than opening a new
+one every six hours, and closes it on recovery.
+
 ## Skills and agents
 
 The repo doubles as a worked example of Claude Code's extension primitives —
