@@ -1,12 +1,12 @@
 {
   "sourceRepo": "PokeAPI/api-data",
-  "sourceRef": "2cda0b56a3a8ad2529d8aac73528225f96d2c848",
-  "generatedAt": "2026-08-17T14:34:56.758Z",
+  "sourceRef": "e845bb4f69a652cd80fef614b26320036f6287b4",
+  "generatedAt": "2026-09-21T19:13:40.676Z",
   "counts": {
     "species": 1025,
     "varieties": 1351,
-    "evolutionChains": 541,
-    "abilities": 373,
+    "evolutionChains": 540,
+    "abilities": 374,
     "games": 32
   }
 }
